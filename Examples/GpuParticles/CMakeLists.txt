@@ -9,10 +9,16 @@ endif()
 set(DEVICE_SRC_FILES ../OpenGL/DeviceGLFW.cpp ../OpenGL/DeviceGLFW.h)
 
 if(WIN32)
-  list(APPEND DEVICE_SRC_FILES ../DirectX11/DeviceDX11.cpp
-       ../DirectX11/DeviceDX11.h)
-  list(APPEND DEVICE_SRC_FILES ../DirectX12/DeviceDX12.cpp
-       ../DirectX12/DeviceDX12.h)
+  # [UAA] - START - gate DX11/DX12 source inclusion behind BUILD_DX11/DX12 (default ON on WIN32)
+  if(BUILD_DX11)
+    list(APPEND DEVICE_SRC_FILES ../DirectX11/DeviceDX11.cpp
+         ../DirectX11/DeviceDX11.h)
+  endif()
+  if(BUILD_DX12)
+    list(APPEND DEVICE_SRC_FILES ../DirectX12/DeviceDX12.cpp
+         ../DirectX12/DeviceDX12.h)
+  endif()
+  # [UAA] - END
 endif()
 
 if(BUILD_VULKAN)
@@ -36,9 +42,13 @@ set(MODULE_INCLUDE_PATHS
     ${EFK_RUNTIME_ROOT}/3rdParty/LLGI/src/ ../Utils)
 
 if(WIN32)
-  list(APPEND MODULE_INCLUDE_PATHS ${EFK_RUNTIME_ROOT}/EffekseerRendererDX11
-       ${EFK_RUNTIME_ROOT}/EffekseerRendererDX12
-       ${EFK_RUNTIME_ROOT}/EffekseerSoundXAudio2)
+  if(BUILD_DX11)
+    list(APPEND MODULE_INCLUDE_PATHS ${EFK_RUNTIME_ROOT}/EffekseerRendererDX11)
+  endif()
+  if(BUILD_DX12)
+    list(APPEND MODULE_INCLUDE_PATHS ${EFK_RUNTIME_ROOT}/EffekseerRendererDX12)
+  endif()
+  list(APPEND MODULE_INCLUDE_PATHS ${EFK_RUNTIME_ROOT}/EffekseerSoundXAudio2)
 endif()
 
 if(BUILD_VULKAN)
@@ -60,8 +70,12 @@ set(MODULE_LIBRARIES Effekseer EffekseerRendererGL ${EFK_EXAMPLES_GLFW} LLGI
                      Example_Utils)
 
 if(WIN32)
-  list(APPEND MODULE_LIBRARIES EffekseerRendererDX11)
-  list(APPEND MODULE_LIBRARIES EffekseerRendererDX12)
+  if(BUILD_DX11)
+    list(APPEND MODULE_LIBRARIES EffekseerRendererDX11)
+  endif()
+  if(BUILD_DX12)
+    list(APPEND MODULE_LIBRARIES EffekseerRendererDX12)
+  endif()
   list(APPEND MODULE_LIBRARIES EffekseerSoundXAudio2)
 endif()
 
