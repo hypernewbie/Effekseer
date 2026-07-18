@@ -9,7 +9,7 @@
     <OutputPath>../../release/</OutputPath>
     <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
     <StartupObject>Effekseer.Program</StartupObject>
-    <AssemblyName>Effekseer</AssemblyName>
+    <!-- [UAA] removed explicit AssemblyName so CMake's target name (EffekseerEditor) applies uniformly to Debug/Release/MinSizeRel/RelWithDebInfo, avoiding the "Ambiguous project name" NuGet error -->
     <DefineConstants>SCRIPT_ENABLED;DOTNET_STARNDARD;</DefineConstants>
     <ApplicationIcon>icon.ico</ApplicationIcon>
   </PropertyGroup>
