@@ -73,5 +73,7 @@ add_subdirectory(CustomAsyncLoader)
 if(WIN32
    OR APPLE
    OR (UNIX AND BUILD_VULKAN))
-  add_subdirectory(GpuParticles)
+  if(BUILD_DX12 OR BUILD_METAL OR BUILD_VULKAN OR BUILD_WEBGPU)
+    add_subdirectory(GpuParticles)
+  endif()
 endif()
