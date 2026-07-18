@@ -491,6 +491,13 @@ if(BUILD_VIEWER
       -DGLFW_BUILD_DOCS=OFF
       -DGLFW_INSTALL=ON
       -DCMAKE_POSITION_INDEPENDENT_CODE:BOOL=true
+      # [UAA] - START - forward parent toolchain so the child cmake picks our compiler, archiver, and generator
+      -DCMAKE_C_COMPILER=${CMAKE_C_COMPILER}
+      -DCMAKE_CXX_COMPILER=${CMAKE_CXX_COMPILER}
+      -DCMAKE_AR=${CMAKE_AR}
+      -DCMAKE_RC_COMPILER=${CMAKE_RC_COMPILER}
+      -G ${CMAKE_GENERATOR}
+      # [UAA] - END
       ${EFK_MSVC_RUNTIME_LIBRARY_ARGS}
       -DCMAKE_OSX_ARCHITECTURES:STRING=arm64$<SEMICOLON>x86_64)
 
