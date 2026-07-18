@@ -4,12 +4,18 @@ project(Example_CustomLoader)
 
 set(DEVICE_SRC_FILES ../OpenGL/DeviceGLFW.cpp ../OpenGL/DeviceGLFW.h)
 
+# [UAA] - START - gate DX9/DX11 source inclusion behind BUILD_DX9/DX11 to mirror the standalone examples
 if(WIN32)
-  list(APPEND DEVICE_SRC_FILES ../DirectX9/DeviceDX9.cpp
-       ../DirectX9/DeviceDX9.h)
-  list(APPEND DEVICE_SRC_FILES ../DirectX11/DeviceDX11.cpp
-       ../DirectX11/DeviceDX11.h)
+  if(BUILD_DX9)
+    list(APPEND DEVICE_SRC_FILES ../DirectX9/DeviceDX9.cpp
+         ../DirectX9/DeviceDX9.h)
+  endif()
+  if(BUILD_DX11)
+    list(APPEND DEVICE_SRC_FILES ../DirectX11/DeviceDX11.cpp
+         ../DirectX11/DeviceDX11.h)
+  endif()
 endif()
+# [UAA] - END
 
 add_executable(${PROJECT_NAME} main.cpp ${DEVICE_SRC_FILES})
 
@@ -17,8 +23,12 @@ set(MODULE_INCLUDE_PATHS ${EFK_RUNTIME_ROOT}/Effekseer
                          ${EFK_RUNTIME_ROOT}/EffekseerRendererGL ../Utils)
 
 if(WIN32)
-  list(APPEND MODULE_INCLUDE_PATHS ${EFK_RUNTIME_ROOT}/EffekseerRendererDX9)
-  list(APPEND MODULE_INCLUDE_PATHS ${EFK_RUNTIME_ROOT}/EffekseerRendererDX11)
+  if(BUILD_DX9)
+    list(APPEND MODULE_INCLUDE_PATHS ${EFK_RUNTIME_ROOT}/EffekseerRendererDX9)
+  endif()
+  if(BUILD_DX11)
+    list(APPEND MODULE_INCLUDE_PATHS ${EFK_RUNTIME_ROOT}/EffekseerRendererDX11)
+  endif()
   list(APPEND MODULE_INCLUDE_PATHS ${EFK_RUNTIME_ROOT}/EffekseerSoundXAudio2)
 endif()
 
@@ -32,8 +42,12 @@ set(MODULE_LIBRARIES Effekseer EffekseerRendererGL ${EFK_EXAMPLES_GLFW}
                      Example_Utils)
 
 if(WIN32)
-  list(APPEND MODULE_LIBRARIES EffekseerRendererDX9)
-  list(APPEND MODULE_LIBRARIES EffekseerRendererDX11)
+  if(BUILD_DX9)
+    list(APPEND MODULE_LIBRARIES EffekseerRendererDX9)
+  endif()
+  if(BUILD_DX11)
+    list(APPEND MODULE_LIBRARIES EffekseerRendererDX11)
+  endif()
   list(APPEND MODULE_LIBRARIES EffekseerSoundXAudio2)
 endif()
 
