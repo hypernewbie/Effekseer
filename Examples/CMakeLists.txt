@@ -30,15 +30,21 @@ endif()
 
 add_subdirectory(Utils)
 
+# [UAA] - START - gate DirectX9/DirectX11/DX12 examples behind their CMake options
 if(WIN32)
-  add_subdirectory(DirectX9)
-  add_subdirectory(DirectX11)
+  if(BUILD_DX9)
+    add_subdirectory(DirectX9)
+  endif()
+  if(BUILD_DX11)
+    add_subdirectory(DirectX11)
+  endif()
   if(BUILD_DX12)
     add_subdirectory(DirectX12)
   endif()
 
   add_subdirectory(Multithread)
 endif()
+# [UAA] - END
 
 add_subdirectory(OpenGL)
 
