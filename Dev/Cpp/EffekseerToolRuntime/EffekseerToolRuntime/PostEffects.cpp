@@ -467,7 +467,7 @@ void TonemapPostEffect::Render(Effekseer::Backend::TextureRef dst, Effekseer::Ba
 
 		postProcessCopy_->Render();
 	}
-	else if (algorithm_ == Algorithm::Reinhard)
+	else if (algorithm_ == Algorithm::XChen) // [UAA]
 	{
 		auto& drawParam = postProcessTone_->GetDrawParameter();
 		drawParam.SetTexture(0, src, Effekseer::Backend::TextureWrapType::Clamp, Effekseer::Backend::TextureSamplingType::Linear);

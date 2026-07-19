@@ -345,7 +345,7 @@ void RenderPostEffectsOnce(const std::shared_ptr<RenderingEnvironment>& window)
 	EXPECT_TRUE(tonemap->GetIsValid());
 	tonemap->SetParameters(Effekseer::ToolRuntime::TonemapPostEffect::Algorithm::Off, 1.0f);
 	tonemap->Render(secondTarget, firstTarget);
-	tonemap->SetParameters(Effekseer::ToolRuntime::TonemapPostEffect::Algorithm::Reinhard, 1.0f);
+	tonemap->SetParameters(Effekseer::ToolRuntime::TonemapPostEffect::Algorithm::XChen, 1.0f); // [UAA]
 	tonemap->Render(firstTarget, secondTarget);
 
 	auto bloom = std::make_unique<Effekseer::ToolRuntime::BloomPostEffect>(graphicsDevice);
