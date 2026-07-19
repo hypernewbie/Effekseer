@@ -289,6 +289,10 @@ namespace Effekseer.GUI
 			Tonemap_OnChanged(null, null);
 			Core.Environment.PostEffect.TonemapSelector.OnChanged += Tonemap_OnChanged;
 			Core.Environment.PostEffect.TonemapXChen.Exposure.OnChanged += Tonemap_OnChanged; // [UAA]
+			Core.Environment.PostEffect.TonemapXChen.Contrast.OnChanged += Tonemap_OnChanged; // [UAA] v2
+			Core.Environment.PostEffect.TonemapXChen.Gamma.OnChanged += Tonemap_OnChanged; // [UAA] v2
+			Core.Environment.PostEffect.TonemapXChen.HuePreserve.OnChanged += Tonemap_OnChanged; // [UAA] v2
+			Core.Environment.PostEffect.TonemapXChen.Saturation.OnChanged += Tonemap_OnChanged; // [UAA] v2
 
 			effectFactory = new swig.EffectFactory(effectSetting);
 
@@ -324,6 +328,10 @@ namespace Effekseer.GUI
 
 			Core.Environment.PostEffect.TonemapSelector.OnChanged -= Tonemap_OnChanged;
 			Core.Environment.PostEffect.TonemapXChen.Exposure.OnChanged -= Tonemap_OnChanged; // [UAA]
+			Core.Environment.PostEffect.TonemapXChen.Contrast.OnChanged -= Tonemap_OnChanged; // [UAA] v2
+			Core.Environment.PostEffect.TonemapXChen.Gamma.OnChanged -= Tonemap_OnChanged; // [UAA] v2
+			Core.Environment.PostEffect.TonemapXChen.HuePreserve.OnChanged -= Tonemap_OnChanged; // [UAA] v2
+			Core.Environment.PostEffect.TonemapXChen.Saturation.OnChanged -= Tonemap_OnChanged; // [UAA] v2
 
 			Core.Option.ViewerMode.OnChanged -= ViewMode_OnChanged;
 
@@ -989,6 +997,10 @@ namespace Effekseer.GUI
 
 			postEffectParam.ToneMapAlgorithm = (int)Core.Environment.PostEffect.TonemapSelector.Value;
 			postEffectParam.ToneMapExposure = Core.Environment.PostEffect.TonemapXChen.Exposure.Value; // [UAA]
+			postEffectParam.ToneMapContrast = Core.Environment.PostEffect.TonemapXChen.Contrast.Value; // [UAA] v2
+			postEffectParam.ToneMapGamma = Core.Environment.PostEffect.TonemapXChen.Gamma.Value; // [UAA] v2
+			postEffectParam.ToneMapHuePreserve = Core.Environment.PostEffect.TonemapXChen.HuePreserve.Value; // [UAA] v2
+			postEffectParam.ToneMapSaturation = Core.Environment.PostEffect.TonemapXChen.Saturation.Value; // [UAA] v2
 
 			EffectRenderer.SetPostEffectParameter(postEffectParam);
 		}

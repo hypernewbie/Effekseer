@@ -583,6 +583,32 @@ class EffekseerNativePINVOKE {
   [global::System.Runtime.InteropServices.DllImport("Viewer", EntryPoint="CSharp_Effekseerfswig_PostEffectParameter_ToneMapExposure_get___")]
   public static extern float PostEffectParameter_ToneMapExposure_get(global::System.Runtime.InteropServices.HandleRef jarg1);
 
+  // [UAA] hand-written P/Invoke declarations for tonemap sliders (contrast, gamma, huePreserve, saturation).
+  // Run Dev/gen_swig.bat and remove this block once SWIG is available.
+  [global::System.Runtime.InteropServices.DllImport("Viewer", EntryPoint="CSharp_Effekseerfswig_PostEffectParameter_ToneMapContrast_set___")]
+  public static extern void PostEffectParameter_ToneMapContrast_set(global::System.Runtime.InteropServices.HandleRef jarg1, float jarg2);
+
+  [global::System.Runtime.InteropServices.DllImport("Viewer", EntryPoint="CSharp_Effekseerfswig_PostEffectParameter_ToneMapContrast_get___")]
+  public static extern float PostEffectParameter_ToneMapContrast_get(global::System.Runtime.InteropServices.HandleRef jarg1);
+
+  [global::System.Runtime.InteropServices.DllImport("Viewer", EntryPoint="CSharp_Effekseerfswig_PostEffectParameter_ToneMapGamma_set___")]
+  public static extern void PostEffectParameter_ToneMapGamma_set(global::System.Runtime.InteropServices.HandleRef jarg1, float jarg2);
+
+  [global::System.Runtime.InteropServices.DllImport("Viewer", EntryPoint="CSharp_Effekseerfswig_PostEffectParameter_ToneMapGamma_get___")]
+  public static extern float PostEffectParameter_ToneMapGamma_get(global::System.Runtime.InteropServices.HandleRef jarg1);
+
+  [global::System.Runtime.InteropServices.DllImport("Viewer", EntryPoint="CSharp_Effekseerfswig_PostEffectParameter_ToneMapHuePreserve_set___")]
+  public static extern void PostEffectParameter_ToneMapHuePreserve_set(global::System.Runtime.InteropServices.HandleRef jarg1, float jarg2);
+
+  [global::System.Runtime.InteropServices.DllImport("Viewer", EntryPoint="CSharp_Effekseerfswig_PostEffectParameter_ToneMapHuePreserve_get___")]
+  public static extern float PostEffectParameter_ToneMapHuePreserve_get(global::System.Runtime.InteropServices.HandleRef jarg1);
+
+  [global::System.Runtime.InteropServices.DllImport("Viewer", EntryPoint="CSharp_Effekseerfswig_PostEffectParameter_ToneMapSaturation_set___")]
+  public static extern void PostEffectParameter_ToneMapSaturation_set(global::System.Runtime.InteropServices.HandleRef jarg1, float jarg2);
+
+  [global::System.Runtime.InteropServices.DllImport("Viewer", EntryPoint="CSharp_Effekseerfswig_PostEffectParameter_ToneMapSaturation_get___")]
+  public static extern float PostEffectParameter_ToneMapSaturation_get(global::System.Runtime.InteropServices.HandleRef jarg1);
+
   [global::System.Runtime.InteropServices.DllImport("Viewer", EntryPoint="CSharp_Effekseerfswig_new_PostEffectParameter___")]
   public static extern global::System.IntPtr new_PostEffectParameter();
 

@@ -1074,7 +1074,8 @@ void EffectRenderer::SetPostEffectParameter(const Effekseer::Tool::PostEffectPar
 	if (tonemapEffect_ != nullptr)
 	{
 		tonemapEffect_->SetEnabled(param.ToneMapAlgorithm != 0);
-		tonemapEffect_->SetParameters((Effekseer::ToolRuntime::TonemapPostEffect::Algorithm)param.ToneMapAlgorithm, param.ToneMapExposure);
+		// [UAA] pass contrast, gamma, huePreserve, saturation through
+		tonemapEffect_->SetParameters((Effekseer::ToolRuntime::TonemapPostEffect::Algorithm)param.ToneMapAlgorithm, param.ToneMapExposure, param.ToneMapContrast, param.ToneMapGamma, param.ToneMapHuePreserve, param.ToneMapSaturation);
 	}
 
 	postEffectParameter_ = param;

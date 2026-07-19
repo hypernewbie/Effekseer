@@ -43,6 +43,10 @@ struct PostEffectParameter
 
 	int ToneMapAlgorithm = 0;
 	float ToneMapExposure = 1.0f;
+	float ToneMapContrast = 1.0f;     // [UAA] AE pivot-pow; identity at 1.0
+	float ToneMapGamma = 1.0f;       // [UAA] post-tonemap pow; identity at 1.0
+	float ToneMapHuePreserve = 0.2f; // [UAA] authored default 0.2
+	float ToneMapSaturation = 1.0f;  // [UAA] lerp with Rec.709 luma; identity at 1.0
 };
 
 struct ViewerExternalModel

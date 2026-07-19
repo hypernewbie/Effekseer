@@ -1,10 +1,12 @@
-// [UAA] - START - xchen tonemap (overwrites Reinhard); mirrors ToolRuntime copy
+// [UAA] - START - xchen tonemap (overwrites Reinhard); sliders: contrast, gamma, huePreserve, saturation
+// Mirrors ToolRuntime copy.
 Texture2D g_texture : register(t0);
 SamplerState g_sampler : register(s0);
 
 cbuffer PS_ConstantBuffer : register(b0)
 {
-	float4 g_toneparams;
+	float4 g_toneparams;     // [UAA] { exposure, contrast, gamma, huePreserve }
+	float4 g_toneparams2;    // [UAA] { saturation, _, _, _ }
 };
 
 struct PS_Input
@@ -40,7 +42,7 @@ float tonemapChen(float x)
 }
 
 // [UAA] Rec.709 luma weights
-float3 tonemapChenHuePreserve(float3 c)
+float3 tonemapChenHuePreserve(float3 c, float hueAmount)
 {
 	const float3 LUMA709 = float3(0.2126f, 0.7152f, 0.0722f);
 	float luma = max(dot(c, LUMA709), 1e-5f);
@@ -50,13 +52,25 @@ float3 tonemapChenHuePreserve(float3 c)
 		tonemapChen(c.g),
 		tonemapChen(c.b));
 	float3 tonemapHuePreserved = hue * tonemapChen(luma);
-	// [UAA] v1: huePreserveAmount hardcoded to 0.2f (authored default)
-	return lerp(tonemapHueShifted, tonemapHuePreserved, 0.2f);
+	return lerp(tonemapHueShifted, tonemapHuePreserved, hueAmount);
 }
 
 float4 main(const PS_Input Input) : SV_Target
 {
-	float3 texel = g_texture.Sample(g_sampler, Input.UV).rgb * g_toneparams.x;
-	return float4(tonemapChenHuePreserve(texel), 1.0f);
+	float3 texel = g_texture.Sample(g_sampler, Input.UV).rgb;
+
+	texel *= g_toneparams.x;
+
+	const float pivot = 0.18f;
+	texel = pow(max(texel / pivot, 1e-5f), g_toneparams.y) * pivot;
+
+	texel = tonemapChenHuePreserve(texel, g_toneparams.w);
+
+	float displayLuma = dot(texel, float3(0.2126f, 0.7152f, 0.0722f));
+	texel = clamp(lerp(float3(displayLuma, displayLuma, displayLuma), texel, g_toneparams2.x), 0.0f, 1.0f);
+
+	texel = pow(max(texel, 0.0f), g_toneparams.z);
+
+	return float4(texel, 1.0f);
 }
 // [UAA] - END

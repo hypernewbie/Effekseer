@@ -400,6 +400,7 @@ TonemapPostEffect::TonemapPostEffect(Backend::GraphicsDeviceRef graphicsDevice)
 
 	Effekseer::CustomVector<Effekseer::Backend::UniformLayoutElement> uniformLayoutElm;
 	uniformLayoutElm.emplace_back(Effekseer::Backend::UniformLayoutElement{Effekseer::Backend::ShaderStageType::Pixel, "CBPS0.g_toneparams", Effekseer::Backend::UniformBufferLayoutElementType::Vector4, 1, 0});
+	uniformLayoutElm.emplace_back(Effekseer::Backend::UniformLayoutElement{Effekseer::Backend::ShaderStageType::Pixel, "CBPS0.g_toneparams2", Effekseer::Backend::UniformBufferLayoutElementType::Vector4, 1, sizeof(float) * 4}); // [UAA] second vec4 uniform; { saturation, _, _, _ }
 	auto uniformLayoutTone = Effekseer::MakeRefPtr<Effekseer::Backend::UniformLayout>(Effekseer::CustomVector<Effekseer::CustomString<char>>{"Sampler_g_sampler"}, uniformLayoutElm);
 
 	Effekseer::Backend::ShaderRef shader_copy;
@@ -442,7 +443,7 @@ TonemapPostEffect::TonemapPostEffect(Backend::GraphicsDeviceRef graphicsDevice)
 
 	if (shader_tone != nullptr)
 	{
-		postProcessTone_ = std::make_unique<PostProcess>(graphicsDevice, shader_tone, 0, sizeof(float) * 4);
+		postProcessTone_ = std::make_unique<PostProcess>(graphicsDevice, shader_tone, 0, sizeof(float) * 8); // [UAA] 32-byte uniform (2 vec4s)
 	}
 }
 
@@ -472,10 +473,11 @@ void TonemapPostEffect::Render(Effekseer::Backend::TextureRef dst, Effekseer::Ba
 		auto& drawParam = postProcessTone_->GetDrawParameter();
 		drawParam.SetTexture(0, src, Effekseer::Backend::TextureWrapType::Clamp, Effekseer::Backend::TextureSamplingType::Linear);
 
-		const std::array<float, 4> constantData = {exposure_, 16.0f * 16.0f};
+		// [UAA] 8 floats: { exposure, contrast, gamma, huePreserve, saturation, _, _, _ }
+		const std::array<float, 8> constantData = {exposure_, contrast_, gamma_, huePreserve_, saturation_, 0.0f, 0.0f, 0.0f};
 
 		auto uniformBuffer = postProcessTone_->GetUniformBufferPS();
-		graphicsDevice_->UpdateUniformBuffer(uniformBuffer, sizeof(float) * 4, 0, constantData.data());
+		graphicsDevice_->UpdateUniformBuffer(uniformBuffer, sizeof(float) * 8, 0, constantData.data());
 
 		postProcessTone_->Render();
 	}
