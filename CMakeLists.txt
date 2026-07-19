@@ -22,6 +22,7 @@ option(BUILD_TEST "Build test" OFF)
 option(BUILD_EXAMPLES "Build examples" ON)
 option(BUILD_TOOLS "Build tools" ON)
 option(BUILD_UNITYPLUGIN "is built as unity plugin" OFF)
+option(BUILD_VALIDATE_CLI "Build effekseer-validate CLI tool" OFF) # [UAA]
 option(BUILD_UNITYPLUGIN_FOR_IOS "is built as unity plugin for ios" OFF)
 option(FROM_CI "from ci" OFF)
 option(
