@@ -246,7 +246,7 @@ void RenderPostEffectsComparisonToScreenshot(const char* screenshotPath)
 
 			auto tonemap = std::make_unique<Effekseer::ToolRuntime::TonemapPostEffect>(graphicsDevice);
 			EXPECT_TRUE(tonemap->GetIsValid());
-			tonemap->SetParameters(Effekseer::ToolRuntime::TonemapPostEffect::Algorithm::Off, 1.0f);
+			tonemap->SetParameters(Effekseer::ToolRuntime::TonemapPostEffect::Algorithm::Off, 1.0f, 1.0f, 1.0f, 0.2f, 1.0f); // [UAA] 4 new sliders
 			tonemap->Render(firstTarget, source);
 
 			auto bloom = std::make_unique<Effekseer::ToolRuntime::BloomPostEffect>(graphicsDevice);
@@ -343,9 +343,9 @@ void RenderPostEffectsOnce(const std::shared_ptr<RenderingEnvironment>& window)
 
 	auto tonemap = std::make_unique<Effekseer::ToolRuntime::TonemapPostEffect>(graphicsDevice);
 	EXPECT_TRUE(tonemap->GetIsValid());
-	tonemap->SetParameters(Effekseer::ToolRuntime::TonemapPostEffect::Algorithm::Off, 1.0f);
+	tonemap->SetParameters(Effekseer::ToolRuntime::TonemapPostEffect::Algorithm::Off, 1.0f, 1.0f, 1.0f, 0.2f, 1.0f); // [UAA] 4 new sliders
 	tonemap->Render(secondTarget, firstTarget);
-	tonemap->SetParameters(Effekseer::ToolRuntime::TonemapPostEffect::Algorithm::XChen, 1.0f); // [UAA]
+	tonemap->SetParameters(Effekseer::ToolRuntime::TonemapPostEffect::Algorithm::XChen, 1.0f, 1.0f, 1.0f, 0.2f, 1.0f); // [UAA] 4 new sliders
 	tonemap->Render(firstTarget, secondTarget);
 
 	auto bloom = std::make_unique<Effekseer::ToolRuntime::BloomPostEffect>(graphicsDevice);
@@ -377,7 +377,7 @@ void RenderTonemapOnce(const std::shared_ptr<RenderingEnvironment>& window)
 
 	auto effect = std::make_unique<Effekseer::ToolRuntime::TonemapPostEffect>(graphicsDevice);
 	EXPECT_TRUE(effect->GetIsValid());
-	effect->SetParameters(Effekseer::ToolRuntime::TonemapPostEffect::Algorithm::Off, 1.0f);
+	effect->SetParameters(Effekseer::ToolRuntime::TonemapPostEffect::Algorithm::Off, 1.0f, 1.0f, 1.0f, 0.2f, 1.0f); // [UAA] 4 new sliders
 	effect->Render(target, source);
 }
 

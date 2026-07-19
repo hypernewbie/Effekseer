@@ -30,3 +30,9 @@ Environment_Bloom_Intensity_Name,Intensity
 Environment_Bloom_Threshold_Name,Threshold
 Environment_Bloom_SoftKnee_Name,Soft Knee
 Environment_TonemapXChen_Exposure_Name,Exposure
+,# [UAA] - START - v2 tonemap slider labels
+Environment_TonemapXChen_Contrast_Name,Contrast
+Environment_TonemapXChen_Gamma_Name,Gamma
+Environment_TonemapXChen_HuePreserve_Name,Hue Preserve
+Environment_TonemapXChen_Saturation_Name,Saturation
+,# [UAA] - END

@@ -2374,9 +2374,99 @@ SWIGEXPORT float SWIGSTDCALL CSharp_Effekseerfswig_PostEffectParameter_ToneMapEx
   Effekseer::Tool::PostEffectParameter *arg1 = 0 ;
   float result;
   
-  arg1 = (Effekseer::Tool::PostEffectParameter *)jarg1; 
+  arg1 = (Effekseer::Tool::PostEffectParameter *)jarg1;
   result = (float) ((arg1)->ToneMapExposure);
-  jresult = result; 
+  jresult = result;
+  return jresult;
+}
+
+// [UAA] v2 tonemap sliders: hand-written SWIG bindings for 4 new struct fields
+// (ToneMapContrast, ToneMapGamma, ToneMapHuePreserve, ToneMapSaturation).
+// Run Dev/gen_swig.bat and remove this block once SWIG is available.
+SWIGEXPORT void SWIGSTDCALL CSharp_Effekseerfswig_PostEffectParameter_ToneMapContrast_set___(void * jarg1, float jarg2) {
+  Effekseer::Tool::PostEffectParameter *arg1 = 0 ;
+  float arg2 ;
+
+  arg1 = (Effekseer::Tool::PostEffectParameter *)jarg1;
+  arg2 = (float)jarg2;
+  if (arg1) (arg1)->ToneMapContrast = arg2;
+}
+
+
+SWIGEXPORT float SWIGSTDCALL CSharp_Effekseerfswig_PostEffectParameter_ToneMapContrast_get___(void * jarg1) {
+  float jresult ;
+  Effekseer::Tool::PostEffectParameter *arg1 = 0 ;
+  float result;
+
+  arg1 = (Effekseer::Tool::PostEffectParameter *)jarg1;
+  result = (float) ((arg1)->ToneMapContrast);
+  jresult = result;
+  return jresult;
+}
+
+
+SWIGEXPORT void SWIGSTDCALL CSharp_Effekseerfswig_PostEffectParameter_ToneMapGamma_set___(void * jarg1, float jarg2) {
+  Effekseer::Tool::PostEffectParameter *arg1 = 0 ;
+  float arg2 ;
+
+  arg1 = (Effekseer::Tool::PostEffectParameter *)jarg1;
+  arg2 = (float)jarg2;
+  if (arg1) (arg1)->ToneMapGamma = arg2;
+}
+
+
+SWIGEXPORT float SWIGSTDCALL CSharp_Effekseerfswig_PostEffectParameter_ToneMapGamma_get___(void * jarg1) {
+  float jresult ;
+  Effekseer::Tool::PostEffectParameter *arg1 = 0 ;
+  float result;
+
+  arg1 = (Effekseer::Tool::PostEffectParameter *)jarg1;
+  result = (float) ((arg1)->ToneMapGamma);
+  jresult = result;
+  return jresult;
+}
+
+
+SWIGEXPORT void SWIGSTDCALL CSharp_Effekseerfswig_PostEffectParameter_ToneMapHuePreserve_set___(void * jarg1, float jarg2) {
+  Effekseer::Tool::PostEffectParameter *arg1 = 0 ;
+  float arg2 ;
+
+  arg1 = (Effekseer::Tool::PostEffectParameter *)jarg1;
+  arg2 = (float)jarg2;
+  if (arg1) (arg1)->ToneMapHuePreserve = arg2;
+}
+
+
+SWIGEXPORT float SWIGSTDCALL CSharp_Effekseerfswig_PostEffectParameter_ToneMapHuePreserve_get___(void * jarg1) {
+  float jresult ;
+  Effekseer::Tool::PostEffectParameter *arg1 = 0 ;
+  float result;
+
+  arg1 = (Effekseer::Tool::PostEffectParameter *)jarg1;
+  result = (float) ((arg1)->ToneMapHuePreserve);
+  jresult = result;
+  return jresult;
+}
+
+
+SWIGEXPORT void SWIGSTDCALL CSharp_Effekseerfswig_PostEffectParameter_ToneMapSaturation_set___(void * jarg1, float jarg2) {
+  Effekseer::Tool::PostEffectParameter *arg1 = 0 ;
+  float arg2 ;
+
+  arg1 = (Effekseer::Tool::PostEffectParameter *)jarg1;
+  arg2 = (float)jarg2;
+  if (arg1) (arg1)->ToneMapSaturation = arg2;
+}
+
+
+SWIGEXPORT float SWIGSTDCALL CSharp_Effekseerfswig_PostEffectParameter_ToneMapSaturation_get___(void * jarg1) {
+  float jresult ;
+  Effekseer::Tool::PostEffectParameter *arg1 = 0 ;
+  float result;
+
+  arg1 = (Effekseer::Tool::PostEffectParameter *)jarg1;
+  result = (float) ((arg1)->ToneMapSaturation);
+  jresult = result;
   return jresult;
 }
 

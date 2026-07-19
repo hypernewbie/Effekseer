@@ -224,9 +224,49 @@ namespace Effekseer.Data
 				private set;
 			}
 
+			// [UAA] tonemap sliders (contrast, gamma, huePreserve, saturation)
+			[Key(key = "Environment_TonemapXChen_Contrast")] // [UAA] AE pivot-pow shape; identity=1.0
+			[Undo(Undo = false)]
+			public Value.Float Contrast
+			{
+				get;
+				private set;
+			}
+
+			[Key(key = "Environment_TonemapXChen_Gamma")] // [UAA] pow after tonemap; identity=1.0
+			[Undo(Undo = false)]
+			public Value.Float Gamma
+			{
+				get;
+				private set;
+			}
+
+			[Key(key = "Environment_TonemapXChen_HuePreserve")] // [UAA] authored default=0.2
+			[Undo(Undo = false)]
+			public Value.Float HuePreserve
+			{
+				get;
+				private set;
+			}
+
+			[Key(key = "Environment_TonemapXChen_Saturation")] // [UAA] lerp with luma; identity=1.0
+			[Undo(Undo = false)]
+			public Value.Float Saturation
+			{
+				get;
+				private set;
+			}
+
 			internal TonemapXChenParameter() // [UAA]
 			{
 				Exposure = new Value.Float(1.0f, 100.0f, 0.0f, 0.1f);
+				// Value.Float ctor: (value, max, min, step). Defaults chosen so the
+				// slider pipeline is a no-op at rest: Contrast=1.0, Gamma=1.0,
+				// Saturation=1.0 are identity; HuePreserve=0.2 matches the reference curve.
+				Contrast = new Value.Float(1.0f, 2.0f, 0.5f, 0.01f);   // [UAA]
+				Gamma = new Value.Float(1.0f, 2.5f, 0.5f, 0.01f);       // [UAA]
+				HuePreserve = new Value.Float(0.2f, 1.0f, 0.0f, 0.01f); // [UAA]
+				Saturation = new Value.Float(1.0f, 2.0f, 0.0f, 0.01f);  // [UAA]
 			}
 		}
 	}

@@ -110,11 +110,53 @@ public class PostEffectParameter : global::System.IDisposable {
   public float ToneMapExposure {
     set {
       EffekseerNativePINVOKE.PostEffectParameter_ToneMapExposure_set(swigCPtr, value);
-    } 
+    }
     get {
       float ret = EffekseerNativePINVOKE.PostEffectParameter_ToneMapExposure_get(swigCPtr);
       return ret;
-    } 
+    }
+  }
+
+  // [UAA] hand-written SWIG wrapper properties for tonemap sliders (contrast, gamma, huePreserve, saturation).
+  // Run Dev/gen_swig.bat and remove this block once SWIG is available.
+  public float ToneMapContrast {
+    set {
+      EffekseerNativePINVOKE.PostEffectParameter_ToneMapContrast_set(swigCPtr, value);
+    }
+    get {
+      float ret = EffekseerNativePINVOKE.PostEffectParameter_ToneMapContrast_get(swigCPtr);
+      return ret;
+    }
+  }
+
+  public float ToneMapGamma {
+    set {
+      EffekseerNativePINVOKE.PostEffectParameter_ToneMapGamma_set(swigCPtr, value);
+    }
+    get {
+      float ret = EffekseerNativePINVOKE.PostEffectParameter_ToneMapGamma_get(swigCPtr);
+      return ret;
+    }
+  }
+
+  public float ToneMapHuePreserve {
+    set {
+      EffekseerNativePINVOKE.PostEffectParameter_ToneMapHuePreserve_set(swigCPtr, value);
+    }
+    get {
+      float ret = EffekseerNativePINVOKE.PostEffectParameter_ToneMapHuePreserve_get(swigCPtr);
+      return ret;
+    }
+  }
+
+  public float ToneMapSaturation {
+    set {
+      EffekseerNativePINVOKE.PostEffectParameter_ToneMapSaturation_set(swigCPtr, value);
+    }
+    get {
+      float ret = EffekseerNativePINVOKE.PostEffectParameter_ToneMapSaturation_get(swigCPtr);
+      return ret;
+    }
   }
 
   public PostEffectParameter() : this(EffekseerNativePINVOKE.new_PostEffectParameter(), true) {

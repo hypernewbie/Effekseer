@@ -99,6 +99,17 @@ public:
 		this->exposure_ = exposure;
 	}
 
+	// [UAA] overload taking contrast, gamma, huePreserve, saturation beyond exposure
+	void SetParameters(Algorithm algorithm, float exposure, float contrast, float gamma, float huePreserve, float saturation)
+	{
+		this->algorithm_ = algorithm;
+		this->exposure_ = exposure;
+		this->contrast_ = contrast;
+		this->gamma_ = gamma;
+		this->huePreserve_ = huePreserve;
+		this->saturation_ = saturation;
+	}
+
 	bool GetEnabled() const
 	{
 		return enabled_;
@@ -118,6 +129,10 @@ private:
 
 	Algorithm algorithm_ = Algorithm::XChen; // [UAA]
 	float exposure_ = 1.0f;
+	float contrast_ = 1.0f;        // [UAA] AE pivot-pow; identity at 1.0
+	float gamma_ = 1.0f;           // [UAA] post-tonemap pow; identity at 1.0
+	float huePreserve_ = 0.2f;     // [UAA] authored default 0.2
+	float saturation_ = 1.0f;      // [UAA] lerp with Rec.709 luma; identity at 1.0
 	bool enabled_ = true;
 };
 
