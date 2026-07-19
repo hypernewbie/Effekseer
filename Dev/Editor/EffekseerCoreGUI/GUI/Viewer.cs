@@ -288,7 +288,7 @@ namespace Effekseer.GUI
 
 			Tonemap_OnChanged(null, null);
 			Core.Environment.PostEffect.TonemapSelector.OnChanged += Tonemap_OnChanged;
-			Core.Environment.PostEffect.TonemapReinhard.Exposure.OnChanged += Tonemap_OnChanged;
+			Core.Environment.PostEffect.TonemapXChen.Exposure.OnChanged += Tonemap_OnChanged; // [UAA]
 
 			effectFactory = new swig.EffectFactory(effectSetting);
 
@@ -323,7 +323,7 @@ namespace Effekseer.GUI
 			Core.Environment.PostEffect.Bloom.SoftKnee.OnChanged -= Bloom_OnChanged;
 
 			Core.Environment.PostEffect.TonemapSelector.OnChanged -= Tonemap_OnChanged;
-			Core.Environment.PostEffect.TonemapReinhard.Exposure.OnChanged -= Tonemap_OnChanged;
+			Core.Environment.PostEffect.TonemapXChen.Exposure.OnChanged -= Tonemap_OnChanged; // [UAA]
 
 			Core.Option.ViewerMode.OnChanged -= ViewMode_OnChanged;
 
@@ -988,7 +988,7 @@ namespace Effekseer.GUI
 			postEffectParam.BloomSoftKnee = Core.Environment.PostEffect.Bloom.SoftKnee.Value;
 
 			postEffectParam.ToneMapAlgorithm = (int)Core.Environment.PostEffect.TonemapSelector.Value;
-			postEffectParam.ToneMapExposure = Core.Environment.PostEffect.TonemapReinhard.Exposure.Value;
+			postEffectParam.ToneMapExposure = Core.Environment.PostEffect.TonemapXChen.Exposure.Value; // [UAA]
 
 			EffectRenderer.SetPostEffectParameter(postEffectParam);
 		}

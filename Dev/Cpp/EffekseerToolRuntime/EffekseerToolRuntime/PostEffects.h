@@ -78,7 +78,7 @@ public:
 	enum class Algorithm
 	{
 		Off,
-		Reinhard,
+		XChen, // [UAA] overwrites Reinhard
 	};
 
 	TonemapPostEffect(Backend::GraphicsDeviceRef graphicsDevice);
@@ -116,7 +116,7 @@ private:
 	Backend::RenderPassRef renderPass_;
 	Effekseer::Backend::TextureRef currentRenderTarget_;
 
-	Algorithm algorithm_ = Algorithm::Reinhard;
+	Algorithm algorithm_ = Algorithm::XChen; // [UAA]
 	float exposure_ = 1.0f;
 	bool enabled_ = true;
 };

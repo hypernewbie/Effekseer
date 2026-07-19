@@ -24,9 +24,9 @@ Environment_TonemapSelector_Name,Tone mapping
 EffectSwitch_Off_Name,Off
 EffectSwitch_On_Name,On
 TonemapAlgorithm_Off_Name,Off
-TonemapAlgorithm_Reinhard_Name,Reinhard
+TonemapAlgorithm_XChen_Name,xChen
 ,
 Environment_Bloom_Intensity_Name,Intensity
 Environment_Bloom_Threshold_Name,Threshold
 Environment_Bloom_SoftKnee_Name,Soft Knee
-Environment_TonemapReinhard_Exposure_Name,Exposure
+Environment_TonemapXChen_Exposure_Name,Exposure

@@ -139,7 +139,7 @@ namespace Effekseer.Data
 
 		[Selected(ID = 0, Value = 1)]
 		[IO(Export = true)]
-		public TonemapReinhardParameter TonemapReinhard
+		public TonemapXChenParameter TonemapXChen // [UAA] overwrites Reinhard
 		{
 			get;
 			private set;
@@ -152,7 +152,7 @@ namespace Effekseer.Data
 			Bloom = new BloomParamater();
 			TonemapSelector = new Value.Enum<TonemapAlgorithm>();
 			TonemapNone = new NoneParamater();
-			TonemapReinhard = new TonemapReinhardParameter();
+			TonemapXChen = new TonemapXChenParameter(); // [UAA]
 		}
 
 
@@ -175,8 +175,8 @@ namespace Effekseer.Data
 		{
 			[Key(key = "TonemapAlgorithm_Off")]
 			Off = 0,
-			[Key(key = "TonemapAlgorithm_Reinhard")]
-			Reinhard = 1,
+			[Key(key = "TonemapAlgorithm_XChen")] // [UAA] overwrites Reinhard
+			XChen = 1,
 		}
 
 		public class BloomParamater
@@ -213,10 +213,10 @@ namespace Effekseer.Data
 			}
 		}
 
-		public class TonemapReinhardParameter
+		public class TonemapXChenParameter // [UAA] overwrites TonemapReinhardParameter
 		{
 
-			[Key(key = "Environment_TonemapReinhard_Exposure")]
+			[Key(key = "Environment_TonemapXChen_Exposure")] // [UAA]
 			[Undo(Undo = false)]
 			public Value.Float Exposure
 			{
@@ -224,7 +224,7 @@ namespace Effekseer.Data
 				private set;
 			}
 
-			internal TonemapReinhardParameter()
+			internal TonemapXChenParameter() // [UAA]
 			{
 				Exposure = new Value.Float(1.0f, 100.0f, 0.0f, 0.1f);
 			}
