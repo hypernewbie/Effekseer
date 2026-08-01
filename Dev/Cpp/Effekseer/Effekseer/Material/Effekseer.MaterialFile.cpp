@@ -34,6 +34,7 @@ bool MaterialFile::Load(const uint8_t* data, int32_t size)
 	FixedGradients.clear();
 	RequiredMethods.clear();
 	genericCode_.clear();
+	customDataUAA_.clear(); // [UAA]
 	while (reader.GetRemainingSize() > 0)
 	{
 		std::array<char, 4> chunk{};
@@ -71,8 +72,17 @@ bool MaterialFile::Load(const uint8_t* data, int32_t size)
 			for (int32_t i = 0; i < textureCount; i++)
 			{
 				std::string name, ignoredPath;
-				if (!readString(body, name) || (version >= 3 && !readString(body, name)) || !readString(body, ignoredPath))
+				// [UAA] - START - keep the human-readable name and authored default path
+				// The first string is the human-readable name. For version >= 3 a second
+				// string overwrites it with the shader variable name, and the third (which
+				// upstream discards as "ignoredPath") is the authored default texture path.
+				std::string humanName;
+				if (!readString(body, name))
 					return false;
+				humanName = name;
+				if ((version >= 3 && !readString(body, name)) || !readString(body, ignoredPath))
+					return false;
+				// [UAA] - END
 				int index = 0, priority = 0, param = 0, colorType = 0, sampler = 0;
 				if (!body.Read(index) || !body.Read(priority) || !body.Read(param) || !body.Read(colorType) || !body.Read(sampler))
 					return false;
@@ -81,6 +91,10 @@ bool MaterialFile::Load(const uint8_t* data, int32_t size)
 				texture.Index = index;
 				texture.Wrap = static_cast<TextureWrapType>(sampler);
 				texture.ColorType = static_cast<TextureColorType>(colorType);
+				// [UAA] - START
+				texture.HumanNameUAA = std::move(humanName);
+				texture.DefaultPathUAA = ignoredPath;
+				// [UAA] - END
 				textures_.push_back(std::move(texture));
 			}
 
@@ -99,6 +113,11 @@ bool MaterialFile::Load(const uint8_t* data, int32_t size)
 				Uniform uniform;
 				uniform.Name = name;
 				uniform.Index = type;
+				// [UAA] - START - retain the authored defaults; the 16 bytes read above as
+				// ints are four floats in the file layout.
+				static_assert(sizeof(float) == sizeof(int), "uniform defaults are four 4-byte floats on disk");
+				memcpy(uniform.DefaultValueUAA.data(), defaults.data(), sizeof(float) * uniform.DefaultValueUAA.size());
+				// [UAA] - END
 				uniforms_.push_back(std::move(uniform));
 			}
 
@@ -123,6 +142,24 @@ bool MaterialFile::Load(const uint8_t* data, int32_t size)
 			if (!readString(body, genericCode_) || body.GetStatus() != BinaryReaderStatus::Complete)
 				return false;
 		}
+		// [UAA] - START - E_CD carries custom data default values; upstream skips the chunk
+		else if (memcmp(chunk.data(), "E_CD", 4) == 0)
+		{
+			int32_t count = 0;
+			if (!body.Read(count, 0, CountMax))
+				return false;
+
+			customDataUAA_.resize(static_cast<size_t>(count));
+			for (auto& customData : customDataUAA_)
+			{
+				if (!body.Read(customData.DefaultValueUAA.data(), 4))
+					return false;
+			}
+
+			if (body.GetStatus() != BinaryReaderStatus::Complete)
+				return false;
+		}
+		// [UAA] - END
 	}
 	guid_ = guid;
 	return true;
@@ -280,5 +317,40 @@ void MaterialFile::SetCustomData2Count(int32_t count)
 {
 	customData2Count_ = count;
 }
+
+// [UAA] - START - authored name, path and default value accessors
+const char* MaterialFile::GetTextureHumanNameUAA(int32_t index) const
+{
+	return textures_.at(index).HumanNameUAA.c_str();
+}
+
+const char* MaterialFile::GetTextureDefaultPathUAA(int32_t index) const
+{
+	return textures_.at(index).DefaultPathUAA.c_str();
+}
+
+std::array<float, 4> MaterialFile::GetUniformDefaultValueUAA(int32_t index) const
+{
+	return uniforms_.at(index).DefaultValueUAA;
+}
+
+int32_t MaterialFile::GetCustomDataDefaultCountUAA() const
+{
+	return static_cast<int32_t>(customDataUAA_.size());
+}
+
+std::array<float, 4> MaterialFile::GetCustomDataDefaultValueUAA(int32_t index) const
+{
+	// The E_CD chunk is optional, so an index taken from GetCustomData1Count() or
+	// GetCustomData2Count() may have no stored default. Report zeros rather than
+	// throwing; call GetCustomDataDefaultCountUAA() to test availability.
+	if (index < 0 || index >= static_cast<int32_t>(customDataUAA_.size()))
+	{
+		return {0.0f, 0.0f, 0.0f, 0.0f};
+	}
+
+	return customDataUAA_[static_cast<size_t>(index)].DefaultValueUAA;
+}
+// [UAA] - END
 
 } // namespace Effekseer
