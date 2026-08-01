@@ -235,3 +235,52 @@ if(BUILD_VIEWER)
   add_subdirectory("EffekseerMaterialEditor")
   set_property(TARGET EffekseerMaterialEditor PROPERTY FOLDER Editor)
 endif()
+
+# [UAA] - START - efkmatc headless material CLI (BUILD_MATERIAL_CLI, default OFF)
+# Adds only what the console tool needs, so it can be built without the viewer
+# or editor: the headless material library and the shader compiler shared
+# libraries it loads at run time. Guarded so it composes with BUILD_VIEWER=ON,
+# where those subdirectories are already registered above. Default OFF, so a
+# build that does not ask for it is unchanged.
+if(BUILD_MATERIAL_CLI)
+  if(NOT TARGET EffekseerMaterial)
+    set(BUILD_TEST_TEMP ${BUILD_TEST})
+    set(BUILD_TEST OFF)
+    add_subdirectory("EffekseerMaterial")
+    set_property(TARGET EffekseerMaterial PROPERTY FOLDER Libraries)
+    set(BUILD_TEST ${BUILD_TEST_TEMP})
+  endif()
+
+  if(NOT TARGET EffekseerMaterialCompilerGL)
+    add_subdirectory("EffekseerMaterialCompiler")
+  endif()
+
+  # Upstream sends these shared libraries to ${CMAKE_SOURCE_DIR}/Dev/release/tools/,
+  # inside the checkout. Redirect them into the build tree so a source checkout
+  # stays free of build output. Skipped when the viewer is being built, because
+  # the editor loads these libraries from Dev/release/tools/ at run time.
+  if(NOT BUILD_VIEWER)
+    foreach(
+      uaa_material_compiler
+      EffekseerMaterialCompilerGL
+      EffekseerMaterialCompilerMetal
+      EffekseerMaterialCompilerWebGPU
+      EffekseerMaterialCompilerDX9
+      EffekseerMaterialCompilerDX11
+      EffekseerMaterialCompilerDX12)
+      if(TARGET ${uaa_material_compiler})
+        set_target_properties(
+          ${uaa_material_compiler}
+          PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/tools"
+                     LIBRARY_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/tools"
+                     RUNTIME_OUTPUT_DIRECTORY_DEBUG "${CMAKE_BINARY_DIR}/tools"
+                     LIBRARY_OUTPUT_DIRECTORY_DEBUG "${CMAKE_BINARY_DIR}/tools"
+                     RUNTIME_OUTPUT_DIRECTORY_RELEASE "${CMAKE_BINARY_DIR}/tools"
+                     LIBRARY_OUTPUT_DIRECTORY_RELEASE "${CMAKE_BINARY_DIR}/tools")
+      endif()
+    endforeach()
+  endif()
+
+  add_subdirectory("EffekseerMaterialCLI")
+endif()
+# [UAA] - END - efkmatc headless material CLI
