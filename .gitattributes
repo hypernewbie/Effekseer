@@ -1,16 +1,23 @@
-.gitattributes eol=lf
-*.bat eol=crlf
-*.sh eol=lf
-*.md eol=lf
-*.csv eol=crlf
-*.vcxproj eol=crlf
-*.vcxproj.filters eol=crlf
-*.h eol=lf
-*.cpp eol=lf
-*.cxx eol=lf
-*.cs eol=lf
-*.mjs eol=lf
-CMakeLists.txt eol=lf
+# [UAA] - START - do not let git rewrite line endings
+# Upstream declared per-extension end-of-line rules here (eol=lf for
+# .h/.cpp/.cs/.md/.sh/CMakeLists.txt, eol=crlf for .bat/.csv/.vcxproj). Those
+# rules contradict the contents of the repository they are applied to: five
+# files are committed with CRLF in the stored blob while the attribute demands
+# LF, so their working copy can never match the index and they read as modified
+# forever, on a completely untouched checkout.
+#
+# On a Windows worktree it is worse. Every file type the patterns do not cover
+# (.txt, .fx, .hlsl, .glsl, .json, .py, .cmake, .inl) falls through to
+# core.autocrlf, which produces whitespace-only diffs measured in the thousands
+# of lines and turns every rebase into a conflict.
+#
+# So take git out of the loop. '-text' disables end-of-line conversion outright:
+# the working tree is byte-for-byte what is stored, nothing is normalised on
+# checkout or on commit, on any platform, whatever core.autocrlf happens to be
+# set to locally. Line endings become the author's problem, which is where they
+# belong.
+* -text
+# [UAA] - END
 
 *.lib filter=lfs diff=lfs merge=lfs -text
 *.png filter=lfs diff=lfs merge=lfs -text
