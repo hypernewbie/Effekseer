@@ -9,8 +9,14 @@
 //   export   generated shader source via TextExporter
 //   compile  .efkmat -> .efkmatd compiled cache, driving the same shader
 //            compiler shared libraries the editor loads at runtime
+//   props    list every editable node property with its current value
+//   set      write one node property, by node GUID and property name
+//   set-texture / set-value  write a named TextureObjectParameter or ParameterN
+//   retarget rewrite texture path prefixes across the whole graph
+// Editing rewrites the graph, regenerates the shader code, and recomputes the
+// GUID, which invalidates any previously compiled .efkmatd cache.
 // Exit codes: 0 ok, 1 usage, 2 load failure, 3 validation warnings,
-// 4 compile failure.
+// 4 compile failure, 5 edit failure.
 // [UAA] - END
 
 #include <algorithm>
@@ -42,6 +48,7 @@ constexpr int ExitUsage = 1;
 constexpr int ExitLoadFailure = 2;
 constexpr int ExitWarnings = 3;
 constexpr int ExitCompileFailure = 4;
+constexpr int ExitEditFailure = 5;
 
 int Usage()
 {
@@ -51,7 +58,16 @@ int Usage()
 			  << "  validate FILE.efkmat\n"
 			  << "  export   FILE.efkmat -o OUTDIR\n"
 			  << "  compile  FILE.efkmat [-o OUT.efkmatd] [--tools-dir DIR] [--verify]\n"
-			  << "  compile  --batch DIR [--tools-dir DIR] [--verify]\n";
+			  << "  compile  --batch DIR [--tools-dir DIR] [--verify]\n"
+			  << "\n"
+			  << "  props       FILE.efkmat\n"
+			  << "  set         FILE.efkmat --node GUID --prop NAME (--str S | --value a,b,c,d) OUT\n"
+			  << "  set-texture FILE.efkmat --param NAME --path PATH OUT\n"
+			  << "  set-value   FILE.efkmat --param NAME --value a,b,c,d OUT\n"
+			  << "  retarget    FILE.efkmat --from PREFIX --to PREFIX OUT\n"
+			  << "\n"
+			  << "  Editing writes to OUT (-o), or in place with --in-place. Editing changes\n"
+			  << "  the material GUID, so recompile any .efkmatd cache afterwards.\n";
 	return ExitUsage;
 }
 
@@ -79,9 +95,58 @@ bool ReadFile(const std::string& path, std::vector<uint8_t>& out)
 	return true;
 }
 
+// Path conventions, which differ between the two APIs used here and are easy to
+// get wrong:
+//
+//  * EffekseerMaterial's PathHelper::Absolute/Relative pop the LAST component of
+//    the base unless it ends in a slash, i.e. they expect the material FILE path.
+//    Material::Load/Save/SaveAsStr therefore take the file path, exactly as the
+//    editor passes it. Handing them a directory silently anchors one level too
+//    high.
+//  * The std::filesystem helpers below need a real directory.
+
+//! Absolute directory holding a material file, for the std::filesystem helpers.
 std::string BaseDirectory(const std::string& path)
 {
-	return std::filesystem::path(path).parent_path().string();
+	std::error_code ec;
+	auto absolute = std::filesystem::absolute(std::filesystem::path(path), ec);
+	if (ec)
+	{
+		return std::filesystem::path(path).parent_path().string();
+	}
+	return absolute.parent_path().lexically_normal().string();
+}
+
+//! Texture paths live in memory as absolute paths and are written relative to the
+//! material file. These two helpers convert between the two views so the CLI can
+//! speak the stored (relative) form to the user while storing what Save expects.
+std::string StoredPath(const std::string& absolutePath, const std::string& baseDirectory)
+{
+	if (absolutePath.empty())
+	{
+		return absolutePath;
+	}
+	std::error_code ec;
+	const auto relative = std::filesystem::relative(absolutePath, baseDirectory, ec);
+	if (ec || relative.empty())
+	{
+		return absolutePath;
+	}
+	return relative.generic_string();
+}
+
+std::string ResolvePath(const std::string& userPath, const std::string& baseDirectory)
+{
+	if (userPath.empty())
+	{
+		return userPath;
+	}
+	std::filesystem::path candidate(userPath);
+	if (!candidate.is_absolute())
+	{
+		candidate = std::filesystem::path(baseDirectory) / candidate;
+	}
+	return candidate.lexically_normal().generic_string();
 }
 
 std::string JsonEscape(const std::string& value)
@@ -153,8 +218,8 @@ std::shared_ptr<EffekseerMaterial::Material> LoadGraph(const std::string& path)
 	auto material = std::make_shared<EffekseerMaterial::Material>();
 	material->Initialize();
 
-	const auto base = BaseDirectory(path);
-	const auto error = material->Load(data, library, base.c_str());
+	// Pass the file path: PathHelper strips the last component itself.
+	const auto error = material->Load(data, library, path.c_str());
 	if (error != EffekseerMaterial::ErrorCode::OK)
 	{
 		std::cerr << "efkmatc: failed to load graph (ErrorCode=" << static_cast<int>(error) << ") " << path << "\n";
@@ -273,6 +338,394 @@ int CommandInfo(const std::string& path, bool asJson)
 	return ExitOk;
 }
 
+const char* ValueTypeName(EffekseerMaterial::ValueType type)
+{
+	switch (type)
+	{
+	case EffekseerMaterial::ValueType::Float1: return "Float1";
+	case EffekseerMaterial::ValueType::Float2: return "Float2";
+	case EffekseerMaterial::ValueType::Float3: return "Float3";
+	case EffekseerMaterial::ValueType::Float4: return "Float4";
+	case EffekseerMaterial::ValueType::FloatN: return "FloatN";
+	case EffekseerMaterial::ValueType::Bool: return "Bool";
+	case EffekseerMaterial::ValueType::Texture: return "Texture";
+	case EffekseerMaterial::ValueType::String: return "String";
+	case EffekseerMaterial::ValueType::Function: return "Function";
+	case EffekseerMaterial::ValueType::Enum: return "Enum";
+	case EffekseerMaterial::ValueType::Int: return "Int";
+	case EffekseerMaterial::ValueType::Gradient: return "Gradient";
+	case EffekseerMaterial::ValueType::Unknown: return "Unknown";
+	}
+	return "Unknown";
+}
+
+//! True for property types whose value lives in NodeProperty::Str.
+bool IsStringProperty(EffekseerMaterial::ValueType type)
+{
+	return type == EffekseerMaterial::ValueType::String || type == EffekseerMaterial::ValueType::Texture;
+}
+
+bool ParseFloat4(const std::string& text, std::array<float, 4>& out)
+{
+	out.fill(0.0f);
+	size_t index = 0;
+	size_t start = 0;
+	while (start <= text.size() && index < out.size())
+	{
+		const size_t comma = text.find(',', start);
+		const std::string field = text.substr(start, comma == std::string::npos ? std::string::npos : comma - start);
+		if (field.empty())
+		{
+			return false;
+		}
+		try
+		{
+			out[index++] = std::stof(field);
+		}
+		catch (const std::exception&)
+		{
+			return false;
+		}
+		if (comma == std::string::npos)
+		{
+			return true;
+		}
+		start = comma + 1;
+	}
+	return index > 0;
+}
+
+std::string DescribeProperty(const std::shared_ptr<EffekseerMaterial::Node>& node,
+							 size_t index,
+							 const std::string& baseDirectory)
+{
+	const auto& parameter = node->Parameter->Properties[index];
+	const auto& value = node->Properties[index];
+	if (parameter->Type == EffekseerMaterial::ValueType::Texture)
+	{
+		// Show the form actually stored in the file, not the resolved absolute path.
+		return "\"" + StoredPath(value->Str, baseDirectory) + "\"";
+	}
+	if (IsStringProperty(parameter->Type))
+	{
+		return "\"" + value->Str + "\"";
+	}
+	return Floats4(value->Floats);
+}
+
+//! Persist an edited graph. Save() regenerates the shader code and rewrites the
+//! GUID from the graph itself, so no caller-side bookkeeping is needed.
+int SaveMaterial(const std::shared_ptr<EffekseerMaterial::Material>& material,
+				 const std::string& sourcePath,
+				 const std::string& destination)
+{
+	if (FindOutputNode(material) == nullptr)
+	{
+		std::cerr << "efkmatc: refusing to save a graph without an output node\n";
+		return ExitEditFailure;
+	}
+
+	// Load resolved every texture path to absolute, and Save re-relativizes them
+	// against the destination file, so the stored relative paths keep pointing at
+	// the same textures from wherever the material lands.
+	(void)sourcePath;
+	std::vector<uint8_t> data;
+	if (!material->Save(data, destination.c_str()) || data.empty())
+	{
+		std::cerr << "efkmatc: failed to serialize material\n";
+		return ExitEditFailure;
+	}
+
+	const auto parent = std::filesystem::path(destination).parent_path();
+	if (!parent.empty())
+	{
+		std::error_code ec;
+		std::filesystem::create_directories(parent, ec);
+	}
+
+	std::ofstream out(destination, std::ios::binary | std::ios::trunc);
+	if (!out)
+	{
+		std::cerr << "efkmatc: cannot write " << destination << "\n";
+		return ExitEditFailure;
+	}
+	out.write(reinterpret_cast<const char*>(data.data()), static_cast<std::streamsize>(data.size()));
+	out.close();
+	if (!out)
+	{
+		std::cerr << "efkmatc: failed while writing " << destination << "\n";
+		return ExitEditFailure;
+	}
+
+	std::cout << "wrote " << destination << " (" << data.size()
+			  << " bytes); GUID changed, recompile any .efkmatd cache\n";
+	return ExitOk;
+}
+
+//! Resolve the destination for an editing subcommand.
+bool ResolveEditTarget(const std::string& source,
+					   const std::string& output,
+					   bool inPlace,
+					   std::string& destination)
+{
+	if (inPlace)
+	{
+		destination = source;
+		return true;
+	}
+	if (output.empty())
+	{
+		std::cerr << "efkmatc: editing needs -o OUT.efkmat, or --in-place to overwrite the input\n";
+		return false;
+	}
+	destination = output;
+	return true;
+}
+
+int CommandProps(const std::string& path)
+{
+	auto material = LoadGraph(path);
+	if (material == nullptr)
+	{
+		return ExitLoadFailure;
+	}
+
+	for (const auto& node : material->GetNodes())
+	{
+		const auto& properties = node->Parameter->Properties;
+		if (properties.empty())
+		{
+			continue;
+		}
+
+		std::cout << "node " << node->GUID << " " << node->Parameter->TypeName << "\n";
+		for (size_t i = 0; i < properties.size() && i < node->Properties.size(); i++)
+		{
+			std::cout << "  " << properties[i]->Name << " (" << ValueTypeName(properties[i]->Type)
+					  << ") = " << DescribeProperty(node, i, BaseDirectory(path)) << "\n";
+		}
+	}
+	return ExitOk;
+}
+
+//! Apply one property write to a node, dispatching on the declared type.
+bool ApplyProperty(const std::shared_ptr<EffekseerMaterial::Material>& material,
+				   const std::shared_ptr<EffekseerMaterial::Node>& node,
+				   const std::string& propertyName,
+				   const std::string& stringValue,
+				   const std::string& floatValue,
+				   const std::string& baseDirectory)
+{
+	const int32_t index = node->Parameter->GetPropertyIndex(propertyName);
+	if (index < 0 || static_cast<size_t>(index) >= node->Properties.size())
+	{
+		std::cerr << "efkmatc: node " << node->GUID << " (" << node->Parameter->TypeName
+				  << ") has no property named " << propertyName << "\n";
+		return false;
+	}
+
+	const auto& parameter = node->Parameter->Properties[static_cast<size_t>(index)];
+	auto& property = node->Properties[static_cast<size_t>(index)];
+
+	if (IsStringProperty(parameter->Type))
+	{
+		if (stringValue.empty() && floatValue.empty())
+		{
+			std::cerr << "efkmatc: property " << propertyName << " is "
+					  << ValueTypeName(parameter->Type) << "; pass --str or --path\n";
+			return false;
+		}
+
+		if (parameter->Type == EffekseerMaterial::ValueType::Texture)
+		{
+			// A texture path is given relative to the material file; store the
+			// resolved absolute path so Save writes the intended relative path.
+			const auto resolved = ResolvePath(stringValue, baseDirectory);
+			if (!resolved.empty() && !std::filesystem::exists(resolved))
+			{
+				std::cerr << "efkmatc: warning: texture does not exist: " << resolved << "\n";
+			}
+			material->ChangeValue(property, resolved);
+			return true;
+		}
+
+		material->ChangeValue(property, stringValue);
+		return true;
+	}
+
+	if (floatValue.empty())
+	{
+		std::cerr << "efkmatc: property " << propertyName << " is " << ValueTypeName(parameter->Type)
+				  << "; pass --value a[,b,c,d]\n";
+		return false;
+	}
+
+	std::array<float, 4> floats{};
+	if (!ParseFloat4(floatValue, floats))
+	{
+		std::cerr << "efkmatc: cannot parse --value " << floatValue << "\n";
+		return false;
+	}
+	material->ChangeValue(property, floats);
+	return true;
+}
+
+//! Find a parameter-style node (TextureObjectParameter, ParameterN, ...) whose
+//! "Name" property matches. That name is what the runtime exposes as the
+//! material's uniform/texture identity, so it is the natural handle for editing.
+std::shared_ptr<EffekseerMaterial::Node> FindNamedParameterNode(
+	const std::shared_ptr<EffekseerMaterial::Material>& material,
+	const std::string& name,
+	bool wantTexture)
+{
+	for (const auto& node : material->GetNodes())
+	{
+		const int32_t nameIndex = node->Parameter->GetPropertyIndex("Name");
+		if (nameIndex < 0 || static_cast<size_t>(nameIndex) >= node->Properties.size())
+		{
+			continue;
+		}
+		if (node->Properties[static_cast<size_t>(nameIndex)]->Str != name)
+		{
+			continue;
+		}
+
+		const bool isTexture = node->Parameter->Type == EffekseerMaterial::NodeType::TextureObjectParameter;
+		if (isTexture == wantTexture)
+		{
+			return node;
+		}
+	}
+	return nullptr;
+}
+
+int CommandSet(const std::string& path,
+			   const std::string& destination,
+			   uint64_t nodeGuid,
+			   const std::string& propertyName,
+			   const std::string& stringValue,
+			   const std::string& floatValue)
+{
+	if (nodeGuid == 0 || propertyName.empty())
+	{
+		std::cerr << "efkmatc: set needs --node GUID and --prop NAME\n";
+		return ExitUsage;
+	}
+
+	auto material = LoadGraph(path);
+	if (material == nullptr)
+	{
+		return ExitLoadFailure;
+	}
+
+	auto node = material->FindNode(nodeGuid);
+	if (node == nullptr)
+	{
+		std::cerr << "efkmatc: no node with GUID " << nodeGuid << "\n";
+		return ExitEditFailure;
+	}
+	if (!ApplyProperty(material, node, propertyName, stringValue, floatValue, BaseDirectory(destination)))
+	{
+		return ExitEditFailure;
+	}
+
+	std::cout << "node " << nodeGuid << " " << propertyName << " updated\n";
+	return SaveMaterial(material, path, destination);
+}
+
+int CommandSetNamed(const std::string& path,
+					const std::string& destination,
+					const std::string& parameterName,
+					bool wantTexture,
+					const std::string& stringValue,
+					const std::string& floatValue)
+{
+	if (parameterName.empty())
+	{
+		std::cerr << "efkmatc: needs --param NAME\n";
+		return ExitUsage;
+	}
+
+	auto material = LoadGraph(path);
+	if (material == nullptr)
+	{
+		return ExitLoadFailure;
+	}
+
+	auto node = FindNamedParameterNode(material, parameterName, wantTexture);
+	if (node == nullptr)
+	{
+		std::cerr << "efkmatc: no " << (wantTexture ? "texture" : "value")
+				  << " parameter named " << parameterName << " (try 'props')\n";
+		return ExitEditFailure;
+	}
+
+	const std::string property = wantTexture ? "Texture" : "Value";
+	if (!ApplyProperty(material, node, property, stringValue, floatValue, BaseDirectory(destination)))
+	{
+		return ExitEditFailure;
+	}
+
+	std::cout << "parameter " << parameterName << " (" << node->Parameter->TypeName << ", node "
+			  << node->GUID << ") updated\n";
+	return SaveMaterial(material, path, destination);
+}
+
+int CommandRetarget(const std::string& path,
+					const std::string& destination,
+					const std::string& fromPrefix,
+					const std::string& toPrefix)
+{
+	if (fromPrefix.empty())
+	{
+		std::cerr << "efkmatc: retarget needs --from PREFIX (and --to PREFIX)\n";
+		return ExitUsage;
+	}
+
+	auto material = LoadGraph(path);
+	if (material == nullptr)
+	{
+		return ExitLoadFailure;
+	}
+
+	// Prefixes are matched against the stored (relative) form, which is what the
+	// user sees in 'props' and in the file itself.
+	const auto base = BaseDirectory(destination);
+	int rewritten = 0;
+	for (const auto& node : material->GetNodes())
+	{
+		const auto& properties = node->Parameter->Properties;
+		for (size_t i = 0; i < properties.size() && i < node->Properties.size(); i++)
+		{
+			if (properties[i]->Type != EffekseerMaterial::ValueType::Texture)
+			{
+				continue;
+			}
+			auto& property = node->Properties[i];
+			const std::string stored = StoredPath(property->Str, base);
+			if (stored.empty() || stored.rfind(fromPrefix, 0) != 0)
+			{
+				continue;
+			}
+
+			const std::string updatedStored = toPrefix + stored.substr(fromPrefix.size());
+			std::cout << "node " << node->GUID << " " << properties[i]->Name << ": " << stored << " -> "
+					  << updatedStored << "\n";
+			material->ChangeValue(property, ResolvePath(updatedStored, base));
+			rewritten++;
+		}
+	}
+
+	if (rewritten == 0)
+	{
+		std::cerr << "efkmatc: no texture path started with " << fromPrefix << "\n";
+		return ExitEditFailure;
+	}
+
+	std::cout << "retargeted " << rewritten << " path(s)\n";
+	return SaveMaterial(material, path, destination);
+}
+
 int CommandGraph(const std::string& path)
 {
 	auto material = LoadGraph(path);
@@ -281,8 +734,7 @@ int CommandGraph(const std::string& path)
 		return ExitLoadFailure;
 	}
 
-	const auto base = BaseDirectory(path);
-	std::cout << material->SaveAsStr(base.c_str()) << "\n";
+	std::cout << material->SaveAsStr(path.c_str()) << "\n";
 	return ExitOk;
 }
 
@@ -534,8 +986,17 @@ int main(int argc, char** argv)
 	std::string output;
 	std::string toolsDirectory;
 	std::string batchDirectory;
+	std::string propertyName;
+	std::string parameterName;
+	std::string stringValue;
+	std::string floatValue;
+	std::string fromPrefix;
+	std::string toPrefix;
+	uint64_t nodeGuid = 0;
 	bool asJson = false;
 	bool verify = false;
+	bool inPlace = false;
+	bool sawToPrefix = false;
 
 	for (int i = 2; i < argc; i++)
 	{
@@ -548,6 +1009,47 @@ int main(int argc, char** argv)
 		else if (argument == "--verify")
 		{
 			verify = true;
+		}
+		else if (argument == "--in-place")
+		{
+			inPlace = true;
+		}
+		else if (argument == "--prop" && hasValue)
+		{
+			propertyName = argv[++i];
+		}
+		else if (argument == "--param" && hasValue)
+		{
+			parameterName = argv[++i];
+		}
+		else if ((argument == "--str" || argument == "--path") && hasValue)
+		{
+			stringValue = argv[++i];
+		}
+		else if (argument == "--value" && hasValue)
+		{
+			floatValue = argv[++i];
+		}
+		else if (argument == "--from" && hasValue)
+		{
+			fromPrefix = argv[++i];
+		}
+		else if (argument == "--to" && hasValue)
+		{
+			toPrefix = argv[++i];
+			sawToPrefix = true;
+		}
+		else if (argument == "--node" && hasValue)
+		{
+			try
+			{
+				nodeGuid = std::stoull(argv[++i]);
+			}
+			catch (const std::exception&)
+			{
+				std::cerr << "efkmatc: --node expects a numeric GUID\n";
+				return ExitUsage;
+			}
 		}
 		else if (argument == "-o" && hasValue)
 		{
@@ -602,6 +1104,38 @@ int main(int argc, char** argv)
 	if (command == "export")
 	{
 		return CommandExport(input, output);
+	}
+	if (command == "props")
+	{
+		return CommandProps(input);
+	}
+
+	if (command == "set" || command == "set-texture" || command == "set-value" || command == "retarget")
+	{
+		std::string destination;
+		if (!ResolveEditTarget(input, output, inPlace, destination))
+		{
+			return ExitUsage;
+		}
+
+		if (command == "set")
+		{
+			return CommandSet(input, destination, nodeGuid, propertyName, stringValue, floatValue);
+		}
+		if (command == "set-texture")
+		{
+			return CommandSetNamed(input, destination, parameterName, true, stringValue, floatValue);
+		}
+		if (command == "set-value")
+		{
+			return CommandSetNamed(input, destination, parameterName, false, stringValue, floatValue);
+		}
+		if (!sawToPrefix)
+		{
+			std::cerr << "efkmatc: retarget needs --to PREFIX (use --to '' to strip)\n";
+			return ExitUsage;
+		}
+		return CommandRetarget(input, destination, fromPrefix, toPrefix);
 	}
 
 	std::cerr << "efkmatc: unknown command " << command << "\n";
