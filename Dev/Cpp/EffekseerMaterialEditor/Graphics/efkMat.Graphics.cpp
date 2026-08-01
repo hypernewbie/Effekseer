@@ -766,4 +766,111 @@ uint64_t Preview::GetInternal()
 	return ret;
 }
 
+// [UAA] - START - Compile() relocated from efkMat.Editor.cpp so non-GUI
+// tools can reach it; body unchanged.
+CompileResult Compile(std::shared_ptr<Graphics> graphics,
+					  std::shared_ptr<Material> material,
+					  std::shared_ptr<Node> node)
+{
+	CompileResult compileResult;
+	compileResult.materialFile = std::make_shared<Effekseer::MaterialFile>();
+
+	std::vector<std::shared_ptr<TextureWithSampler>> outputTextures;
+
+	EffekseerMaterial::TextExporter exporter;
+	auto result = (&exporter)->Export(material, node);
+
+	compileResult.materialFile->SetGenericCode(result.Code.c_str());
+	compileResult.materialFile->SetIsSimpleVertex(false);
+	compileResult.materialFile->SetHasRefraction(result.HasRefraction);
+	compileResult.materialFile->SetShadingModel(static_cast<Effekseer::ShadingModelType>(result.ShadingModel));
+	compileResult.materialFile->SetCustomData1Count(result.CustomData1);
+	compileResult.materialFile->SetCustomData2Count(result.CustomData2);
+
+	compileResult.materialFile->SetTextureCount(result.Textures.size());
+	compileResult.materialFile->SetUniformCount(result.Uniforms.size());
+
+	for (const auto& type : result.RequiredPredefinedMethodTypes)
+	{
+		compileResult.materialFile->RequiredMethods.emplace_back(static_cast<Effekseer::MaterialFile::RequiredPredefinedMethodType>(type));
+	}
+
+	for (size_t i = 0; i < result.Textures.size(); i++)
+	{
+		compileResult.materialFile->SetTextureIndex(i, i);
+		compileResult.materialFile->SetTextureName(i, result.Textures[i]->UniformName.c_str());
+	}
+
+	for (size_t i = 0; i < result.Uniforms.size(); i++)
+	{
+		compileResult.materialFile->SetUniformIndex(i, (int)result.Uniforms[i]->Type);
+		compileResult.materialFile->SetUniformName(i, result.Uniforms[i]->UniformName.c_str());
+	}
+
+	const auto copyGradient = [&](std::vector<Effekseer::MaterialFile::GradientParameter>& dst, const std::vector<std::shared_ptr<TextExporterGradient>>& src)
+	{
+		dst.resize(src.size());
+
+		for (size_t i = 0; i < dst.size(); i++)
+		{
+			dst[i].Name = src[i]->UniformName;
+			dst[i].Data.ColorCount = src[i]->Defaults.ColorCount;
+			for (size_t j = 0; j < dst[i].Data.Colors.size(); j++)
+			{
+				dst[i].Data.Colors[j].Color = src[i]->Defaults.Colors[j].Color;
+				dst[i].Data.Colors[j].Intensity = src[i]->Defaults.Colors[j].Intensity;
+				dst[i].Data.Colors[j].Position = src[i]->Defaults.Colors[j].Position;
+			}
+
+			dst[i].Data.AlphaCount = src[i]->Defaults.AlphaCount;
+			for (size_t j = 0; j < dst[i].Data.Alphas.size(); j++)
+			{
+				dst[i].Data.Alphas[j].Alpha = src[i]->Defaults.Alphas[j].Alpha;
+				dst[i].Data.Alphas[j].Position = src[i]->Defaults.Alphas[j].Position;
+			}
+		}
+	};
+
+	copyGradient(compileResult.materialFile->Gradients, result.Gradients);
+
+	copyGradient(compileResult.materialFile->FixedGradients, result.FixedGradients);
+
+	auto textures = result.Textures;
+	auto removed_it = std::remove_if(textures.begin(),
+									 textures.end(),
+									 [](const std::shared_ptr<EffekseerMaterial::TextExporterTexture>& v) -> bool
+									 { return v->Index < 0; });
+
+	if (removed_it != textures.end())
+	{
+		textures.erase(removed_it);
+	}
+
+	std::sort(textures.begin(),
+			  textures.end(),
+			  [](const std::shared_ptr<EffekseerMaterial::TextExporterTexture>& a,
+				 const std::shared_ptr<EffekseerMaterial::TextExporterTexture>& b) -> bool
+			  { return a->Index < b->Index; });
+
+	for (auto t : textures)
+	{
+		auto t_ = EffekseerMaterial::TextureCache::Load(graphics, t->DefaultPath.c_str());
+		auto ts = std::make_shared<TextureWithSampler>();
+		ts->Name = t->UniformName;
+		ts->TexturePtr = t_;
+		ts->SamplerType = t->Sampler;
+		outputTextures.push_back(ts);
+	}
+
+	compileResult.textures = outputTextures;
+	compileResult.uniforms = result.Uniforms;
+	compileResult.fixedGradients = result.FixedGradients;
+	compileResult.gradients = result.Gradients;
+	compileResult.customData1Count = result.CustomData1;
+	compileResult.customData2Count = result.CustomData2;
+
+	return compileResult;
+}
+// [UAA] - END
+
 } // namespace EffekseerMaterial
