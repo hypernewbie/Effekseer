@@ -43,13 +43,25 @@ private:
 		int32_t Index;
 		TextureWrapType Wrap;
 		TextureColorType ColorType;
+		// [UAA] - START - authoring metadata the file already stores but upstream discards
+		std::string HumanNameUAA;
+		std::string DefaultPathUAA;
+		// [UAA] - END
 	};
 
 	struct Uniform
 	{
 		std::string Name;
 		int32_t Index;
+		std::array<float, 4> DefaultValueUAA{}; // [UAA]
 	};
+
+	// [UAA] - START - custom data defaults, carried in the E_CD chunk upstream ignores
+	struct CustomDataUAA
+	{
+		std::array<float, 4> DefaultValueUAA{};
+	};
+	// [UAA] - END
 
 	uint64_t guid_ = 0;
 
@@ -67,6 +79,8 @@ private:
 	std::vector<Texture> textures_;
 
 	std::vector<Uniform> uniforms_;
+
+	std::vector<CustomDataUAA> customDataUAA_; // [UAA]
 
 	static const int32_t LatestSupportVersion = MaterialVersion18;
 	static const int32_t OldestSupportVersion = 0;
@@ -140,6 +154,18 @@ public:
 	virtual int32_t GetCustomData2Count() const;
 
 	virtual void SetCustomData2Count(int32_t count);
+
+	// [UAA] - START - accessors for authored names, paths and default values
+	virtual const char* GetTextureHumanNameUAA(int32_t index) const;
+
+	virtual const char* GetTextureDefaultPathUAA(int32_t index) const;
+
+	virtual std::array<float, 4> GetUniformDefaultValueUAA(int32_t index) const;
+
+	virtual int32_t GetCustomDataDefaultCountUAA() const;
+
+	virtual std::array<float, 4> GetCustomDataDefaultValueUAA(int32_t index) const;
+	// [UAA] - END
 };
 
 } // namespace Effekseer
