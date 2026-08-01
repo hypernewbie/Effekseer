@@ -326,6 +326,14 @@ public:
 	static const int32_t TextureSize = 128;
 };
 
+// [UAA] - START - shared with the headless material CLI
+//! Translates a material graph into an Effekseer::MaterialFile plus the
+//! preview's texture/uniform bindings. Defined in efkMat.Graphics.cpp.
+CompileResult Compile(std::shared_ptr<Graphics> graphics,
+					  std::shared_ptr<Material> material,
+					  std::shared_ptr<Node> node);
+// [UAA] - END
+
 } // namespace EffekseerMaterial
 
 namespace std
