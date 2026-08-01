@@ -255,6 +255,20 @@ if(BUILD_MATERIAL_CLI)
     add_subdirectory("EffekseerMaterialCompiler")
   endif()
 
+  # Offscreen preview rendering needs the GL renderer plus the file-IO layer's
+  # IPC helper. IPC is a small, dependency-light static library. Notably this
+  # avoids EditorCommon, whose target pulls in imgui, GLFW and a hard GTK3
+  # requirement through 3rdParty/Boxer, and avoids OpenGLHelper, whose loader
+  # needs GLFW.
+  if(NOT TARGET IPC)
+    add_subdirectory("IPC")
+    set_target_properties(IPC PROPERTIES FOLDER Libraries)
+    # spdlog is header-only and vendored; the viewer/test builds add it to
+    # EFK_THIRDPARTY_INCLUDES, so supply the path directly for a CLI-only build.
+    target_include_directories(
+      IPC PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/3rdParty/spdlog/include")
+  endif()
+
   # Upstream sends these shared libraries to ${CMAKE_SOURCE_DIR}/Dev/release/tools/,
   # inside the checkout. Redirect them into the build tree so a source checkout
   # stays free of build output. Skipped when the viewer is being built, because

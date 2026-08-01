@@ -34,6 +34,10 @@
 #include "../Effekseer/Effekseer/Material/Effekseer.MaterialFile.h"
 #include "../Viewer/CompiledMaterialGenerator.h"
 
+#if EFKMATC_ENABLE_RENDER
+#include "Render.h"
+#endif
+
 #include "efkMat.Base.h"
 #include "efkMat.Library.h"
 #include "efkMat.Models.h"
@@ -49,6 +53,7 @@ constexpr int ExitLoadFailure = 2;
 constexpr int ExitWarnings = 3;
 constexpr int ExitCompileFailure = 4;
 constexpr int ExitEditFailure = 5;
+constexpr int ExitRenderFailure = 6;
 
 int Usage()
 {
@@ -66,8 +71,12 @@ int Usage()
 			  << "  set-value   FILE.efkmat --param NAME --value a,b,c,d OUT\n"
 			  << "  retarget    FILE.efkmat --from PREFIX --to PREFIX OUT\n"
 			  << "\n"
+			  << "  render      FILE.efkmat -o OUT.png [--model screen|sphere] [--time T]\n"
+			  << "              [--resources DIR]\n"
+			  << "\n"
 			  << "  Editing writes to OUT (-o), or in place with --in-place. Editing changes\n"
-			  << "  the material GUID, so recompile any .efkmatd cache afterwards.\n";
+			  << "  the material GUID, so recompile any .efkmatd cache afterwards.\n"
+			  << "  render draws offscreen; it needs no window and no display server.\n";
 	return ExitUsage;
 }
 
@@ -974,6 +983,74 @@ int CommandCompile(const std::string& path,
 
 } // namespace
 
+//! Renders an offscreen preview. Kept behind a compile guard because it needs
+//! EGL's surfaceless platform; hosts without it still get every other command,
+//! and say so plainly rather than failing in an obscure way.
+int CommandRender(const std::string& path,
+				  const std::string& output,
+				  const std::string& modelName,
+				  const std::string& resourceDirectory,
+				  float time)
+{
+#if !EFKMATC_ENABLE_RENDER
+	(void)path;
+	(void)output;
+	(void)modelName;
+	(void)resourceDirectory;
+	(void)time;
+	std::cerr << "efkmatc: this build has no offscreen renderer; it requires EGL\n";
+	return ExitRenderFailure;
+#else
+	if (output.empty())
+	{
+		std::cerr << "efkmatc: render needs an output file (-o OUT.png)\n";
+		return ExitUsage;
+	}
+
+	efkmatc::RenderRequest request;
+	request.outputPath = output;
+	request.time = time;
+	request.resourceDirectory = resourceDirectory;
+
+	if (modelName.empty() || modelName == "screen")
+	{
+		request.model = efkmatc::PreviewModel::Screen;
+	}
+	else if (modelName == "sphere")
+	{
+		request.model = efkmatc::PreviewModel::Sphere;
+		if (resourceDirectory.empty())
+		{
+			std::cerr << "efkmatc: --model sphere needs --resources DIR containing "
+						 "resources/meshes/sphere.obj\n";
+			return ExitUsage;
+		}
+	}
+	else
+	{
+		std::cerr << "efkmatc: unknown --model " << modelName << " (screen or sphere)\n";
+		return ExitUsage;
+	}
+
+	auto material = LoadGraph(path);
+	if (material == nullptr)
+	{
+		return ExitLoadFailure;
+	}
+
+	std::string error;
+	if (!efkmatc::RenderMaterial(material, request, error))
+	{
+		std::cerr << "efkmatc: " << error << "\n";
+		return ExitRenderFailure;
+	}
+
+	std::cout << "rendered " << path << " -> " << output << " (" << efkmatc::LastDeviceDescription()
+			  << ")\n";
+	return ExitOk;
+#endif
+}
+
 int main(int argc, char** argv)
 {
 	if (argc < 2)
@@ -986,6 +1063,9 @@ int main(int argc, char** argv)
 	std::string output;
 	std::string toolsDirectory;
 	std::string batchDirectory;
+	std::string modelName;
+	std::string resourceDirectory;
+	float timeValue = 0.0f;
 	std::string propertyName;
 	std::string parameterName;
 	std::string stringValue;
@@ -1059,6 +1139,26 @@ int main(int argc, char** argv)
 		{
 			toolsDirectory = argv[++i];
 		}
+		else if (argument == "--model" && hasValue)
+		{
+			modelName = argv[++i];
+		}
+		else if (argument == "--resources" && hasValue)
+		{
+			resourceDirectory = argv[++i];
+		}
+		else if (argument == "--time" && hasValue)
+		{
+			try
+			{
+				timeValue = std::stof(argv[++i]);
+			}
+			catch (const std::exception&)
+			{
+				std::cerr << "efkmatc: --time expects a number\n";
+				return ExitUsage;
+			}
+		}
 		else if (argument == "--batch" && hasValue)
 		{
 			batchDirectory = argv[++i];
@@ -1082,6 +1182,15 @@ int main(int argc, char** argv)
 	if (command == "compile")
 	{
 		return CommandCompile(input, output, toolsDirectory, batchDirectory, verify);
+	}
+
+	if (command == "render")
+	{
+		if (input.empty())
+		{
+			return Usage();
+		}
+		return CommandRender(input, output, modelName, resourceDirectory, timeValue);
 	}
 
 	if (input.empty())
