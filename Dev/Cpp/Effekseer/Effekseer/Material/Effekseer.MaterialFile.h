@@ -82,8 +82,8 @@ private:
 
 	std::vector<CustomDataUAA> customDataUAA_; // [UAA]
 
-	static const int32_t LatestSupportVersion = MaterialVersion18;
-	static const int32_t OldestSupportVersion = 0;
+	static constexpr int32_t LatestSupportVersion = MaterialVersion18; // [UAA] - implicitly inline under C++17 so the BinaryReader::Read const-ref bounds below do not require an out-of-line definition
+	static constexpr int32_t OldestSupportVersion = 0; // [UAA] - see LatestSupportVersion
 
 public:
 	std::vector<GradientParameter> Gradients;

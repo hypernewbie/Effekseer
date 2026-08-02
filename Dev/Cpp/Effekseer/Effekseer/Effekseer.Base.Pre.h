@@ -897,7 +897,7 @@ void Log(LogType logType, const std::string& message);
 
 struct Gradient
 {
-	static const int KeyMax = 8;
+	static constexpr int KeyMax = 8; // [UAA] - implicitly inline under C++17 so the BinaryReader::Read const-ref bounds below do not require an out-of-line definition
 
 	struct ColorKey
 	{
