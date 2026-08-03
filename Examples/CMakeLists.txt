@@ -45,11 +45,8 @@ if(WIN32)
   add_subdirectory(Multithread)
 endif()
 
-# GpuParticles links LLGI, which is only built when one of the modern
-# backends (DX12/Metal/Vulkan/WebGPU) is enabled.
-if(BUILD_DX12 OR BUILD_METAL OR BUILD_VULKAN OR BUILD_WEBGPU)
-  add_subdirectory(GpuParticles)
-endif()
+# GpuParticles previously gated here was a duplicate of the WIN32/APPLE block
+# further down; the v1800 fork's gate is no longer needed.
 # [UAA] - END
 
 add_subdirectory(OpenGL)
