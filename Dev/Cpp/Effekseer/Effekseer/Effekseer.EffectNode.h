@@ -236,6 +236,33 @@ struct ParameterRendererCommon
 			pos += sizeof(int);
 		}
 
+		// [UAA] - START - v1800 RendererCommon layout skew
+		// Effects authored by an older Effekseer editor are stamped runtime
+		// version 1800 but carry a RendererCommon body with 4 extra int32s
+		// (unbound-texture sentinels) inserted immediately before AlphaBlend.
+		// The current writer stamps 1810 and never emits this layout; these
+		// frozen 1800 assets need a fail-safe legacy read. Peek the would-be
+		// AlphaBlend: if it is a valid enum, this is the current layout. If not,
+		// peek 16 bytes ahead; if that is a valid enum, skip the 4 extra int32s
+		// (legacy layout). Otherwise leave pos unchanged. Committing to the
+		// skip only when the re-read validates makes a wrong guess impossible:
+		// a current-layout file always has a valid AlphaBlend in place, so the
+		// legacy branch never fires for it.
+		if (version == Version18Alpha1)
+		{
+			int32_t peekCurrent = 0;
+			memcpy(&peekCurrent, pos, sizeof(int32_t));
+			if (peekCurrent < 0 || peekCurrent > 4)
+			{
+				int32_t peekLegacy = 0;
+				memcpy(&peekLegacy, pos + 4 * sizeof(int32_t), sizeof(int32_t));
+				if (peekLegacy >= 0 && peekLegacy <= 4)
+				{
+					pos += 4 * sizeof(int); // skip the 4 legacy extra int32s
+				}
+			}
+		}
+		// [UAA] - END
 		memcpy(&AlphaBlend, pos, sizeof(int));
 		pos += sizeof(int);
 
