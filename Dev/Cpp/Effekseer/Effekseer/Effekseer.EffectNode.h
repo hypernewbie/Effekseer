@@ -275,10 +275,9 @@ struct ParameterRendererCommon
 			pos.Skip(sizeof(int));
 		}
 
-		// [UAA] - START - recognize the legacy v1800 RendererCommon layout safely
-		// Older v1800 assets can contain four unbound-texture sentinels before
-		// AlphaBlend. Peek the current location, then check 16 bytes ahead only
-		// when the current value is not a valid enum. Keep the reader bounded.
+		// [UAA] - START - safely read the legacy v1800 RendererCommon layout
+		// Skip four extra int32s only when current AlphaBlend is invalid and the
+		// candidate 16 bytes ahead is valid; keep all reads bounded.
 		if (version == Version18Alpha1)
 		{
 			const size_t alphaBlendOffset = pos.GetOffset();
