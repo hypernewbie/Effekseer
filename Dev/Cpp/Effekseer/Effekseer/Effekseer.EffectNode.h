@@ -275,6 +275,41 @@ struct ParameterRendererCommon
 			pos.Skip(sizeof(int));
 		}
 
+		// [UAA] - START - recognize the legacy v1800 RendererCommon layout safely
+		// Older v1800 assets can contain four unbound-texture sentinels before
+		// AlphaBlend. Peek the current location, then check 16 bytes ahead only
+		// when the current value is not a valid enum. Keep the reader bounded.
+		if (version == Version18Alpha1)
+		{
+			const size_t alphaBlendOffset = pos.GetOffset();
+			int32_t peekCurrent = 0;
+			if (!pos.Peek(&peekCurrent, sizeof(peekCurrent)))
+			{
+				return pos.MarkFailed();
+			}
+
+			if (peekCurrent < 0 || peekCurrent > 4)
+			{
+				constexpr size_t legacyPaddingSize = 4 * sizeof(int32_t);
+				int32_t peekLegacy = 0;
+				if (pos.CanRead(legacyPaddingSize + sizeof(peekLegacy)))
+				{
+					if (!pos.SetOffset(alphaBlendOffset + legacyPaddingSize) ||
+						!pos.Peek(&peekLegacy, sizeof(peekLegacy)) ||
+						!pos.SetOffset(alphaBlendOffset))
+					{
+						return pos.MarkFailed();
+					}
+
+					if (peekLegacy >= 0 && peekLegacy <= 4 && !pos.Skip(legacyPaddingSize))
+					{
+						return pos.MarkFailed();
+					}
+				}
+			}
+		}
+		// [UAA] - END
+
 		if (!pos.Peek(&AlphaBlend, sizeof(int)))
 		{
 			return pos.MarkFailed();
