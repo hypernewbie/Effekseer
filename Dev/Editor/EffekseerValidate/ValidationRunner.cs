@@ -29,12 +29,17 @@ namespace EffekseerValidate
 					out var schemaIssues))
 			{
 					// Under --json the machine contract still holds: emit one
-					// error result so consumers always get a document.
+					// error result so consumers always get a document. The path
+					// comes from the schema issue when it names one (e.g. an
+					// unwritable --schema-out), otherwise the requested input.
 					if (args.Json)
 					{
+						var failurePath = schemaIssues.Count > 0 && !string.IsNullOrEmpty(schemaIssues[0].Path)
+							? schemaIssues[0].Path
+							: (args.SchemaIn ?? "");
 						var failureResults = new List<FileResult>
 						{
-							ErrorResult(args.SchemaIn ?? "",
+							ErrorResult(failurePath,
 								schemaIssues.Count > 0 ? schemaIssues[0].Message : "schema preparation failed"),
 						};
 						CliOutput.EmitValidateJson(failureResults, args.Strict);

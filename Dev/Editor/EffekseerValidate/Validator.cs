@@ -55,7 +55,20 @@ namespace EffekseerValidate
 			}
 
 			if (options.SchemaOut != null)
-				WriteSchema(schema, options.SchemaOut);
+			{
+				try
+				{
+					WriteSchema(schema, options.SchemaOut);
+				}
+				catch (Exception ex)
+				{
+					// A user-supplied --schema-out path that cannot be written is a
+					// run-level error (exit 1), not an internal exception (exit 3).
+					issues.Add(Issue.Error(options.SchemaOut, 0, 0,
+						$"--schema-out {options.SchemaOut}: could not write schema: {ex.GetType().Name}: {ex.Message}"));
+					return false;
+				}
+			}
 
 			return true;
 		}

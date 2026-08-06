@@ -226,6 +226,8 @@ namespace EffekseerValidate
 				var a = argv[i];
 				switch (a)
 				{
+					case "-h":
+					case "--help": parsed.Help = true; return true;
 					case "--json": parsed.Json = true; break;
 					case "--check": parsed.Check = true; break;
 					case "--check-input": parsed.CheckInput = true; break;
@@ -266,6 +268,7 @@ namespace EffekseerValidate
 			{
 				var a = argv[i];
 				if (a == "--json") { parsed.Json = true; continue; }
+				if (a == "-h" || a == "--help") { parsed.Help = true; return true; }
 				if (a.StartsWith("-"))
 				{
 					error = $"unknown option for resources: {a}";
@@ -296,6 +299,8 @@ namespace EffekseerValidate
 				var a = argv[i];
 				switch (a)
 				{
+					case "-h":
+					case "--help": parsed.Help = true; return true;
 					case "--from":
 						if (!TakeValue(argv, ref i, a, out var from, out error)) return false;
 						parsed.From = from;
@@ -369,6 +374,8 @@ namespace EffekseerValidate
 				var a = argv[i];
 				switch (a)
 				{
+					case "-h":
+					case "--help": parsed.Help = true; return true;
 					case "--output":
 						if (!TakeValue(argv, ref i, a, out var outPath, out error)) return false;
 						parsed.Output = outPath;
@@ -421,6 +428,11 @@ namespace EffekseerValidate
 		static bool ParseSelfTest(string[] argv, Args parsed, out string error)
 		{
 			error = "";
+			if (argv.Length == 1 && (argv[0] == "-h" || argv[0] == "--help"))
+			{
+				parsed.Help = true;
+				return true;
+			}
 			if (argv.Length != 1)
 			{
 				error = "self-test accepts exactly one DIR argument";
@@ -513,9 +525,17 @@ namespace EffekseerValidate
 				}
 			}
 
-			// --self-test short-circuits positional validation.
+			// --self-test short-circuits positional validation, but still rejects
+			// extra positionals (the named command takes exactly one DIR; the
+			// dir itself is consumed by the --self-test flag, so any positional
+			// left over is an extra argument).
 			if (selfTestDir != null)
 			{
+				if (positionals.Count > 0)
+				{
+					error = $"unexpected extra arguments with --self-test: {string.Join(" ", positionals)}";
+					return false;
+				}
 				parsed.Command = EfkcCommand.SelfTest;
 				parsed.SelfTestDir = selfTestDir;
 				return true;
