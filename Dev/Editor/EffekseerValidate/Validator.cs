@@ -20,45 +20,62 @@ namespace EffekseerValidate
 	// masks errors).
 	public static class Validator
 	{
+		// [UAA] - START - efkc: prepared-schema validate sessions and --check-resources
 		public class Options
 		{
 			public bool Check { get; set; } = false;
 			public bool CheckInput { get; set; } = false;
 			public bool Strict { get; set; } = false;
+			public bool CheckResources { get; set; } = false;
 			public string? SchemaIn { get; set; } = null;   // load schema from this path
 			public string? SchemaOut { get; set; } = null;  // write schema to this path (.json or .md)
 		}
 
-		public static List<Issue> Run(string rawPath, Options options)
+		// Schema setup shared by the whole validate invocation: load from disk
+		// if requested, otherwise generate; optionally write to disk for AI
+		// consumption. A schema-prep failure is a run-level error (no files are
+		// processed), not a per-file issue.
+		public static bool PrepareSchema(Options options, out Schema.Document schema, out List<Issue> issues)
 		{
-			var issues = new List<Issue>();
-			var path = Path.GetFullPath(rawPath);
+			issues = new List<Issue>();
+			schema = null;
 
-			// Schema: load from disk if requested, otherwise generate in
-			// memory. Optionally write to disk for AI consumption.
-			Schema.Document schema;
 			if (options.SchemaIn != null)
 			{
 				if (!TryLoadSchema(options.SchemaIn, out var loaded, out var schemaError))
 				{
-					issues.Add(Issue.Error(path, 0, 0, $"--schema-in {options.SchemaIn}: {schemaError}"));
-					return issues;
+					issues.Add(Issue.Error("", 0, 0, $"--schema-in {options.SchemaIn}: {schemaError}"));
+					return false;
 				}
 				schema = loaded!;
-				// Warn if schema is from a different EffekseerCore version
-				// - the schema reflects the type set of the version it was
-				// generated against, and a stale schema silently validates
-				// against the wrong model.
-				if (!string.IsNullOrEmpty(schema.Version) && schema.Version != Core.Version)
-					issues.Add(Issue.Warning(path, 0, 0,
-						$"schema version {schema.Version} != current EffekseerCore {Core.Version} (may produce false positives/negatives)"));
 			}
 			else
 			{
 				schema = Schema.Generate();
 			}
+
 			if (options.SchemaOut != null)
 				WriteSchema(schema, options.SchemaOut);
+
+			return true;
+		}
+
+		public static List<Issue> Run(string rawPath, Options options, Schema.Document schema)
+		{
+			var issues = new List<Issue>();
+			var path = Path.GetFullPath(rawPath);
+
+			// Warn if the loaded schema is from a different EffekseerCore version
+			// - the schema reflects the type set of the version it was generated
+			// against, and a stale schema silently validates against the wrong
+			// model. Only relevant when the schema came from disk.
+			if (options.SchemaIn != null
+				&& !string.IsNullOrEmpty(schema.Version)
+				&& schema.Version != Core.Version)
+			{
+				issues.Add(Issue.Warning(path, 0, 0,
+					$"schema version {schema.Version} != current EffekseerCore {Core.Version} (may produce false positives/negatives)"));
+			}
 
 			if (!EffekseerLoad.TryLoad(path, out var doc, out var root, out var loadIssues))
 			{
@@ -101,6 +118,11 @@ namespace EffekseerValidate
 
 			if (options.Check && !issues.Any(i => i.Severity == Severity.Error))
 				issues.AddRange(RoundtripCheck.Run(path, root));
+
+			// Resource gate: missing references and walker blind spots become
+			// issues. Only meaningful once the file itself loaded cleanly.
+			if (options.CheckResources && !issues.Any(i => i.Severity == Severity.Error))
+				issues.AddRange(ResourceCheck.Run(path, root));
 
 			return issues;
 		}
@@ -199,6 +221,7 @@ namespace EffekseerValidate
 			return true;
 		}
 	}
+	// [UAA] - END
 
 	// Fixed-point round-trip check: load -> save -> load -> save -> compare.
 	// If SaveAsXmlDocument is non-idempotent the second save must converge.

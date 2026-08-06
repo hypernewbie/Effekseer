@@ -8,7 +8,7 @@
     <DefineConstants>TRACE;DOTNET_STARNDARD</DefineConstants>
     <OutputPath>../../release/</OutputPath>
     <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
-    <AssemblyName>EffekseerValidate</AssemblyName>
+    <AssemblyName>efkc</AssemblyName> <!-- [UAA] -->
     <RootNamespace>EffekseerValidate</RootNamespace>
     <Nullable>disable</Nullable>
     <LangVersion>latest</LangVersion>
