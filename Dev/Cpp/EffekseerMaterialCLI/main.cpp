@@ -13,20 +13,33 @@
 //   set      write one node property, by node GUID and property name
 //   set-texture / set-value  write a named TextureObjectParameter or ParameterN
 //   retarget rewrite texture path prefixes across the whole graph
-// Editing rewrites the graph, regenerates the shader code, and recomputes the
-// GUID, which invalidates any previously compiled .efkmatd cache.
+//   from-spec / save-spec   import and export the editor graph as JSON
+//            (the raw payload from Material::SaveAsStr, optionally wrapped
+//            in a {"schema_version":..,"kind":"graph",..} envelope)
+//   add-texture   create a TextureObjectParameter node, leave it available
+//                 for graph wiring
+//   add-uniform   create a Parameter1..Parameter4 node with a default value,
+//                 leave it available for graph wiring
+//   set-custom-data  write one of the two Material::CustomData slots
+//   set-shading-model  set the Output node's ShadingModel property
+// Every write command rebuilds the graph, regenerates the shader code, and
+// recomputes the GUID via Material::Save. The runtime chunks (PRM_, GENE,
+// E_CD, DATA) are emitted by Material::Save from the graph itself; we never
+// hand-derive them.
 // Exit codes: 0 ok, 1 usage, 2 load failure, 3 validation warnings,
 // 4 compile failure, 5 edit failure.
 // [UAA] - END
 
 #include <algorithm>
 #include <cstdint>
+#include <cmath>
 #include <cstdio>
 #include <cstring>
 #include <filesystem>
 #include <fstream>
 #include <iostream>
 #include <memory>
+#include <limits>
 #include <string>
 #include <vector>
 
@@ -43,6 +56,7 @@
 #include "efkMat.Models.h"
 #include "efkMat.Parameters.h"
 #include "efkMat.TextExporter.h"
+#include "ThirdParty/picojson.h"
 
 namespace
 {
@@ -71,6 +85,13 @@ int Usage()
 			  << "  set-value   FILE.efkmat --param NAME --value a,b,c,d OUT\n"
 			  << "  retarget    FILE.efkmat --from PREFIX --to PREFIX OUT\n"
 			  << "\n"
+			  << "  from-spec  SPEC.json -o OUT.efkmat\n"
+			  << "  save-spec  FILE.efkmat -o OUTSPEC.json\n"
+			  << "  add-texture     FILE.efkmat --name NAME --path PATH [-o OUT.efkmat]\n"
+			  << "  add-uniform     FILE.efkmat --name NAME --default x[,y,z,w] [-o OUT.efkmat]\n"
+			  << "  set-custom-data FILE.efkmat --slot 0|1 --default x,y,z,w [-o OUT.efkmat]\n"
+			  << "  set-shading-model FILE.efkmat --shading-model lit|unlit [-o OUT.efkmat]\n"
+			  << "\n"
 			  << "  render      FILE.efkmat -o OUT.png [--model screen|sphere] [--time T]\n"
 			  << "              [--resources DIR]\n"
 			  << "\n"
@@ -98,6 +119,30 @@ bool ReadFile(const std::string& path, std::vector<uint8_t>& out)
 
 	out.resize(static_cast<size_t>(size));
 	if (size > 0 && !file.read(reinterpret_cast<char*>(out.data()), size))
+	{
+		return false;
+	}
+	return true;
+}
+
+bool ReadTextFile(const std::string& path, std::string& out)
+{
+	std::ifstream file(path, std::ios::binary);
+	if (!file)
+	{
+		return false;
+	}
+
+	file.seekg(0, std::ios::end);
+	const auto size = static_cast<std::streamoff>(file.tellg());
+	file.seekg(0, std::ios::beg);
+	if (size < 0)
+	{
+		return false;
+	}
+
+	out.resize(static_cast<size_t>(size));
+	if (size > 0 && !file.read(out.data(), size))
 	{
 		return false;
 	}
@@ -374,34 +419,51 @@ bool IsStringProperty(EffekseerMaterial::ValueType type)
 	return type == EffekseerMaterial::ValueType::String || type == EffekseerMaterial::ValueType::Texture;
 }
 
-bool ParseFloat4(const std::string& text, std::array<float, 4>& out)
+bool ParseFloat4(const std::string& text, std::array<float, 4>& out, int* componentCount = nullptr)
 {
 	out.fill(0.0f);
 	size_t index = 0;
 	size_t start = 0;
-	while (start <= text.size() && index < out.size())
+	while (start < text.size())
 	{
+		if (index == out.size())
+		{
+			return false;
+		}
+
 		const size_t comma = text.find(',', start);
 		const std::string field = text.substr(start, comma == std::string::npos ? std::string::npos : comma - start);
 		if (field.empty())
 		{
 			return false;
 		}
+
 		try
 		{
-			out[index++] = std::stof(field);
+			size_t consumed = 0;
+			const float value = std::stof(field, &consumed);
+			if (consumed != field.size() || !std::isfinite(value))
+			{
+				return false;
+			}
+			out[index++] = value;
 		}
 		catch (const std::exception&)
 		{
 			return false;
 		}
+
 		if (comma == std::string::npos)
 		{
+			if (componentCount != nullptr)
+			{
+				*componentCount = static_cast<int>(index);
+			}
 			return true;
 		}
 		start = comma + 1;
 	}
-	return index > 0;
+	return false;
 }
 
 std::string DescribeProperty(const std::shared_ptr<EffekseerMaterial::Node>& node,
@@ -747,6 +809,655 @@ int CommandGraph(const std::string& path)
 	return ExitOk;
 }
 
+//! Spec envelope recognised by from-spec / save-spec. The raw SaveAsStr
+//! payload is also accepted unchanged, so the wrapper is purely optional.
+constexpr const char* kSpecSchemaVersion = "1";
+constexpr const char* kSpecKindGraph = "graph";
+
+bool IsFiniteJsonFloat(const picojson::value& value)
+{
+	return value.is<double>() && std::isfinite(value.get<double>()) &&
+		value.get<double>() >= -static_cast<double>(std::numeric_limits<float>::max()) &&
+		value.get<double>() <= static_cast<double>(std::numeric_limits<float>::max());
+}
+
+bool IsJsonIdentifier(const picojson::value& value)
+{
+	constexpr double MaxExactJsonInteger = 9007199254740991.0; // 2^53 - 1
+	return value.is<double>() && std::isfinite(value.get<double>()) && value.get<double>() >= 0.0 &&
+		value.get<double>() <= MaxExactJsonInteger && std::floor(value.get<double>()) == value.get<double>();
+}
+
+bool IsJsonTextureType(const picojson::value& value)
+{
+	return IsJsonIdentifier(value) && value.get<double>() <= static_cast<double>(EffekseerMaterial::TextureValueType::Value);
+}
+
+const picojson::value* FindJsonMember(const picojson::object& object, const char* name)
+{
+	const auto found = object.find(name);
+	return found == object.end() ? nullptr : &found->second;
+}
+
+bool ValidateNumberMembers(const picojson::object& object, std::initializer_list<const char*> names)
+{
+	for (const auto* name : names)
+	{
+		const auto* value = FindJsonMember(object, name);
+		if (value == nullptr || !IsFiniteJsonFloat(*value))
+		{
+			return false;
+		}
+	}
+	return true;
+}
+
+bool ValidateDescriptions(const picojson::value& value)
+{
+	if (!value.is<picojson::array>())
+	{
+		return false;
+	}
+	for (const auto& description : value.get<picojson::array>())
+	{
+		if (!description.is<picojson::object>())
+		{
+			return false;
+		}
+		const auto& object = description.get<picojson::object>();
+		const auto* summary = FindJsonMember(object, "Summary");
+		const auto* detail = FindJsonMember(object, "Detail");
+		if (summary == nullptr || detail == nullptr || !summary->is<std::string>() || !detail->is<std::string>())
+		{
+			return false;
+		}
+	}
+	return true;
+}
+
+bool ValidateGradient(const picojson::value& value)
+{
+	if (!value.is<picojson::object>())
+	{
+		return false;
+	}
+	const auto& object = value.get<picojson::object>();
+	const auto* colors = FindJsonMember(object, "Colors");
+	const auto* alphas = FindJsonMember(object, "Alphas");
+	if (colors == nullptr || alphas == nullptr || !colors->is<picojson::array>() || !alphas->is<picojson::array>() ||
+		colors->get<picojson::array>().size() > Effekseer::Gradient::KeyMax ||
+		alphas->get<picojson::array>().size() > Effekseer::Gradient::KeyMax)
+	{
+		return false;
+	}
+	for (const auto& color : colors->get<picojson::array>())
+	{
+		if (!color.is<picojson::object>() ||
+			!ValidateNumberMembers(color.get<picojson::object>(), {"R", "G", "B", "Intensity", "Position"}))
+		{
+			return false;
+		}
+	}
+	for (const auto& alpha : alphas->get<picojson::array>())
+	{
+		if (!alpha.is<picojson::object>() || !ValidateNumberMembers(alpha.get<picojson::object>(), {"Alpha", "Position"}))
+		{
+			return false;
+		}
+	}
+	return true;
+}
+
+bool ValidateProperty(const picojson::value& value, EffekseerMaterial::ValueType type)
+{
+	if (!value.is<picojson::object>())
+	{
+		return false;
+	}
+	const auto& object = value.get<picojson::object>();
+	switch (type)
+	{
+	case EffekseerMaterial::ValueType::Float1: return ValidateNumberMembers(object, {"Value1"});
+	case EffekseerMaterial::ValueType::Float2: return ValidateNumberMembers(object, {"Value1", "Value2"});
+	case EffekseerMaterial::ValueType::Float3: return ValidateNumberMembers(object, {"Value1", "Value2", "Value3"});
+	case EffekseerMaterial::ValueType::Float4: return ValidateNumberMembers(object, {"Value1", "Value2", "Value3", "Value4"});
+	case EffekseerMaterial::ValueType::Bool:
+	{
+		const auto* field = FindJsonMember(object, "Value");
+		return field != nullptr && field->is<bool>();
+	}
+	case EffekseerMaterial::ValueType::String:
+	case EffekseerMaterial::ValueType::Texture:
+	{
+		const auto* field = FindJsonMember(object, "Value");
+		return field != nullptr && field->is<std::string>();
+	}
+	case EffekseerMaterial::ValueType::Int:
+	case EffekseerMaterial::ValueType::Enum: return ValidateNumberMembers(object, {"Value"});
+	case EffekseerMaterial::ValueType::Gradient: return ValidateGradient(value);
+	default: return false;
+	}
+}
+
+bool ValidateGraphObject(const picojson::value& graphValue,
+						 const std::shared_ptr<EffekseerMaterial::Library>& library,
+						 std::string& error)
+{
+	if (!graphValue.is<picojson::object>())
+	{
+		error = "graph must be an object";
+		return false;
+	}
+	const auto& graph = graphValue.get<picojson::object>();
+	const auto* project = FindJsonMember(graph, "Project");
+	const auto* nodesValue = FindJsonMember(graph, "Nodes");
+	const auto* linksValue = FindJsonMember(graph, "Links");
+	const auto* customData = FindJsonMember(graph, "CustomData");
+	const auto* customDataDescs = FindJsonMember(graph, "CustomDataDescs");
+	const auto* textures = FindJsonMember(graph, "Textures");
+	if (project == nullptr || !project->is<std::string>() || project->get<std::string>() != "EffekseerMaterial" ||
+		nodesValue == nullptr || !nodesValue->is<picojson::array>() || linksValue == nullptr || !linksValue->is<picojson::array>() ||
+		customData == nullptr || !customData->is<picojson::array>() || customData->get<picojson::array>().size() != 2 ||
+		customDataDescs == nullptr || !customDataDescs->is<picojson::array>() || customDataDescs->get<picojson::array>().size() != 2 ||
+		textures == nullptr || !textures->is<picojson::array>())
+	{
+		error = "graph must contain Project, Nodes, Links, two CustomData entries, two CustomDataDescs entries, and Textures";
+		return false;
+	}
+
+	const auto& nodes = nodesValue->get<picojson::array>();
+	const auto& links = linksValue->get<picojson::array>();
+	if (nodes.empty() || nodes.size() > 4096 || links.size() > 16384)
+	{
+		error = "graph node or link count is out of bounds";
+		return false;
+	}
+
+	struct NodeReference
+	{
+		uint64_t guid;
+		std::shared_ptr<EffekseerMaterial::NodeParameter> parameter;
+		std::shared_ptr<EffekseerMaterial::Node> validationNode;
+	};
+	std::vector<NodeReference> nodeReferences;
+	nodeReferences.reserve(nodes.size());
+	for (const auto& nodeValue : nodes)
+	{
+		if (!nodeValue.is<picojson::object>())
+		{
+			error = "each graph node must be an object";
+			return false;
+		}
+		const auto& node = nodeValue.get<picojson::object>();
+		const auto* guid = FindJsonMember(node, "GUID");
+		const auto* type = FindJsonMember(node, "Type");
+		const auto* posX = FindJsonMember(node, "PosX");
+		const auto* posY = FindJsonMember(node, "PosY");
+		const auto* properties = FindJsonMember(node, "Props");
+		if (guid == nullptr || !IsJsonIdentifier(*guid) || type == nullptr || !type->is<std::string>() ||
+			posX == nullptr || !IsFiniteJsonFloat(*posX) || posY == nullptr || !IsFiniteJsonFloat(*posY) ||
+			properties == nullptr || !properties->is<picojson::array>())
+		{
+			error = "each graph node needs finite GUID/position values, Type, and Props";
+			return false;
+		}
+		const auto parameterSource = library->FindContentWithTypeName(type->get<std::string>().c_str());
+		if (parameterSource == nullptr)
+		{
+			error = "graph refers to an unknown node type";
+			return false;
+		}
+		auto parameter = parameterSource->Create();
+		const uint64_t id = static_cast<uint64_t>(guid->get<double>());
+		if (std::any_of(nodeReferences.begin(), nodeReferences.end(), [id](const NodeReference& other) { return other.guid == id; }) ||
+			properties->get<picojson::array>().size() != parameter->Properties.size())
+		{
+			error = "graph has duplicate GUIDs or a node with an invalid property count";
+			return false;
+		}
+		for (size_t index = 0; index < parameter->Properties.size(); index++)
+		{
+			if (!ValidateProperty(properties->get<picojson::array>()[index], parameter->Properties[index]->Type))
+			{
+				error = "graph has a property with an invalid type or value";
+				return false;
+			}
+		}
+		const auto* descriptions = FindJsonMember(node, "Descs");
+		if (descriptions != nullptr && !ValidateDescriptions(*descriptions))
+		{
+			error = "graph has invalid node descriptions";
+			return false;
+		}
+		nodeReferences.push_back({id, parameter, nullptr});
+	}
+
+	// Material::LoadFromStr does not report failed connections. Build the same
+	// node types in an isolated graph first, so a supplied spec cannot silently
+	// lose an invalid, duplicate, or cyclic link during import.
+	auto linkMaterial = std::make_shared<EffekseerMaterial::Material>();
+	linkMaterial->Initialize();
+	for (auto& reference : nodeReferences)
+	{
+		reference.validationNode = linkMaterial->CreateNode(reference.parameter, false);
+	}
+
+	for (const auto& data : customData->get<picojson::array>())
+	{
+		if (!data.is<picojson::object>() || !ValidateNumberMembers(data.get<picojson::object>(), {"Value1", "Value2", "Value3", "Value4"}))
+		{
+			error = "graph has invalid custom-data defaults";
+			return false;
+		}
+	}
+	for (const auto& descriptions : customDataDescs->get<picojson::array>())
+	{
+		if (!ValidateDescriptions(descriptions))
+		{
+			error = "graph has invalid custom-data descriptions";
+			return false;
+		}
+	}
+	for (const auto& texture : textures->get<picojson::array>())
+	{
+		if (!texture.is<picojson::object>())
+		{
+			error = "graph has an invalid texture entry";
+			return false;
+		}
+		const auto& object = texture.get<picojson::object>();
+		const auto* path = FindJsonMember(object, "Path");
+		const auto* type = FindJsonMember(object, "Type");
+		if (path == nullptr || !path->is<std::string>() || type == nullptr || !IsJsonTextureType(*type))
+		{
+			error = "graph has an invalid texture entry";
+			return false;
+		}
+	}
+
+	std::vector<uint64_t> linkGuids;
+	std::vector<std::pair<uint64_t, std::string>> connectedInputs;
+	for (const auto& linkValue : links)
+	{
+		if (!linkValue.is<picojson::object>())
+		{
+			error = "each graph link must be an object";
+			return false;
+		}
+		const auto& link = linkValue.get<picojson::object>();
+		const auto* guid = FindJsonMember(link, "GUID");
+		const auto* input = FindJsonMember(link, "InputGUID");
+		const auto* output = FindJsonMember(link, "OutputGUID");
+		const auto* inputPin = FindJsonMember(link, "InputPin");
+		const auto* outputPin = FindJsonMember(link, "OutputPin");
+		if (guid == nullptr || !IsJsonIdentifier(*guid) || input == nullptr || !IsJsonIdentifier(*input) ||
+			output == nullptr || !IsJsonIdentifier(*output) || inputPin == nullptr || !inputPin->is<std::string>() ||
+			outputPin == nullptr || !outputPin->is<std::string>())
+		{
+			error = "graph has an invalid link";
+			return false;
+		}
+
+		const uint64_t linkId = static_cast<uint64_t>(guid->get<double>());
+		const uint64_t inputId = static_cast<uint64_t>(input->get<double>());
+		const uint64_t outputId = static_cast<uint64_t>(output->get<double>());
+		const auto findNode = [&nodeReferences](uint64_t id) {
+			return std::find_if(nodeReferences.begin(), nodeReferences.end(),
+				[id](const NodeReference& node) { return node.guid == id; });
+		};
+		const auto inputNode = findNode(inputId);
+		const auto outputNode = findNode(outputId);
+		if (inputNode == nodeReferences.end() || outputNode == nodeReferences.end() ||
+			std::find(linkGuids.begin(), linkGuids.end(), linkId) != linkGuids.end())
+		{
+			error = "graph link refers to a missing node or duplicates a GUID";
+			return false;
+		}
+
+		std::string outputPinName = outputPin->get<std::string>();
+		if (outputNode->parameter->TypeName == "SampleTexture" && outputPinName == "Output")
+		{
+			outputPinName = "RGBA";
+		}
+		const int32_t inputPinIndex = inputNode->validationNode->GetInputPinIndex(inputPin->get<std::string>());
+		const int32_t outputPinIndex = outputNode->validationNode->GetOutputPinIndex(outputPinName);
+		const auto inputKey = std::make_pair(inputId, inputPin->get<std::string>());
+		if (inputPinIndex < 0 || outputPinIndex < 0 ||
+			std::find(connectedInputs.begin(), connectedInputs.end(), inputKey) != connectedInputs.end() ||
+			linkMaterial->ConnectPin(inputNode->validationNode->InputPins[static_cast<size_t>(inputPinIndex)],
+				outputNode->validationNode->OutputPins[static_cast<size_t>(outputPinIndex)]) != EffekseerMaterial::ConnectResultType::OK)
+		{
+			error = "graph has an invalid, conflicting, or cyclic link";
+			return false;
+		}
+		linkGuids.push_back(linkId);
+		connectedInputs.push_back(std::move(inputKey));
+	}
+	return true;
+}
+
+bool ParseGraphSpec(const std::string& body,
+					const std::shared_ptr<EffekseerMaterial::Library>& library,
+					std::string& graph,
+					std::string& error)
+{
+	picojson::value root;
+	const std::string parseError = picojson::parse(root, body);
+	if (!parseError.empty() || !root.is<picojson::object>())
+	{
+		error = parseError.empty() ? "spec must be a JSON object" : parseError;
+		return false;
+	}
+
+	const auto& object = root.get<picojson::object>();
+	const auto schema = object.find("schema_version");
+	const auto kind = object.find("kind");
+	const auto wrappedGraph = object.find("graph");
+	const bool isEnvelope = schema != object.end() || kind != object.end() || wrappedGraph != object.end();
+	const picojson::value* graphValue = &root;
+	if (isEnvelope)
+	{
+		if (schema == object.end() || kind == object.end() || wrappedGraph == object.end() ||
+			!schema->second.is<std::string>() || schema->second.get<std::string>() != kSpecSchemaVersion ||
+			!kind->second.is<std::string>() || kind->second.get<std::string>() != kSpecKindGraph ||
+			!wrappedGraph->second.is<picojson::object>())
+		{
+			error = "spec must contain schema_version=\"1\", kind=\"graph\", and an object graph";
+			return false;
+		}
+		graphValue = &wrappedGraph->second;
+	}
+
+	if (!ValidateGraphObject(*graphValue, library, error))
+	{
+		return false;
+	}
+	graph = graphValue->serialize();
+	return true;
+}
+
+int CommandSaveSpec(const std::string& path, const std::string& destination)
+{
+	if (destination.empty())
+	{
+		std::cerr << "efkmatc: save-spec needs -o OUTSPEC.json\n";
+		return ExitUsage;
+	}
+
+	auto material = LoadGraph(path);
+	if (material == nullptr)
+	{
+		return ExitLoadFailure;
+	}
+
+	// Serialize texture paths relative to the spec itself. from-spec resolves
+	// them against specPath, then Material::Save re-relativizes them to OUTPUT.
+	const auto raw = material->SaveAsStr(destination.c_str());
+	if (raw.empty())
+	{
+		std::cerr << "efkmatc: empty graph for " << path << "\n";
+		return ExitLoadFailure;
+	}
+
+	const auto parent = std::filesystem::path(destination).parent_path();
+	if (!parent.empty())
+	{
+		std::error_code ec;
+		std::filesystem::create_directories(parent, ec);
+	}
+
+	std::ofstream out(destination, std::ios::binary | std::ios::trunc);
+	if (!out)
+	{
+		std::cerr << "efkmatc: cannot write " << destination << "\n";
+		return ExitEditFailure;
+	}
+	out << "{\"schema_version\":\"" << kSpecSchemaVersion << "\",\"kind\":\"" << kSpecKindGraph
+		<< "\",\"graph\":" << raw << "}\n";
+	out.close();
+	if (!out)
+	{
+		std::cerr << "efkmatc: failed while writing " << destination << "\n";
+		return ExitEditFailure;
+	}
+
+	std::error_code sizeError;
+	const auto written = std::filesystem::file_size(destination, sizeError);
+	if (sizeError)
+	{
+		std::cerr << "efkmatc: cannot stat " << destination << ": " << sizeError.message() << "\n";
+		return ExitEditFailure;
+	}
+	std::cout << "wrote " << destination << " (" << written << " bytes)\n";
+	return ExitOk;
+}
+
+int CommandFromSpec(const std::string& specPath, const std::string& destination)
+{
+	if (destination.empty())
+	{
+		std::cerr << "efkmatc: from-spec needs -o OUT.efkmat\n";
+		return ExitUsage;
+	}
+
+	std::string body;
+	if (!ReadTextFile(specPath, body))
+	{
+		std::cerr << "efkmatc: cannot read " << specPath << "\n";
+		return ExitLoadFailure;
+	}
+
+	auto library = std::make_shared<EffekseerMaterial::Library>();
+	std::string graph;
+	std::string parseError;
+	if (!ParseGraphSpec(body, library, graph, parseError))
+	{
+		std::cerr << "efkmatc: invalid graph spec " << specPath << ": " << parseError << "\n";
+		return ExitLoadFailure;
+	}
+
+	auto material = std::make_shared<EffekseerMaterial::Material>();
+	// Initialize supplies the two CustomData descriptions that Material::Save
+	// requires before LoadFromStr replaces the graph contents.
+	material->Initialize();
+	// Graph texture paths are relative to the spec, not the output material.
+	material->LoadFromStr(graph.c_str(), library, specPath.c_str());
+
+	if (FindOutputNode(material) == nullptr)
+	{
+		std::cerr << "efkmatc: spec did not produce an Output node: " << specPath << "\n";
+		return ExitEditFailure;
+	}
+
+	return SaveMaterial(material, specPath, destination);
+}
+
+//! Find a node in the library by TypeName (e.g. "TextureObjectParameter"). The
+//! library self-seeds all known node types; consumers should not instantiate
+//! NodeParameter subclasses by hand.
+std::shared_ptr<EffekseerMaterial::NodeParameter> FindLibraryNode(const std::shared_ptr<EffekseerMaterial::Library>& library,
+																   const std::string& typeName)
+{
+	auto content = library->FindContentWithTypeName(typeName.c_str());
+	if (content == nullptr)
+	{
+		return nullptr;
+	}
+	return content->Create();
+}
+
+int CommandAddTexture(const std::string& path, const std::string& destination, const std::string& name, const std::string& texturePath)
+{
+	if (name.empty() || texturePath.empty())
+	{
+		std::cerr << "efkmatc: add-texture needs --name NAME and --path PATH\n";
+		return ExitUsage;
+	}
+
+	auto material = LoadGraph(path);
+	if (material == nullptr)
+	{
+		return ExitLoadFailure;
+	}
+
+	auto library = std::make_shared<EffekseerMaterial::Library>();
+	auto parameter = FindLibraryNode(library, "TextureObjectParameter");
+	if (parameter == nullptr)
+	{
+		std::cerr << "efkmatc: library does not expose TextureObjectParameter\n";
+		return ExitEditFailure;
+	}
+
+	auto node = material->CreateNode(parameter, true);
+	node->Pos = EffekseerMaterial::Vector2DF(0.0f, 200.0f);
+
+	const int32_t nameIndex = node->Parameter->GetPropertyIndex("Name");
+	const int32_t textureIndex = node->Parameter->GetPropertyIndex("Texture");
+	if (nameIndex < 0 || textureIndex < 0 || static_cast<size_t>(nameIndex) >= node->Properties.size() ||
+		static_cast<size_t>(textureIndex) >= node->Properties.size())
+	{
+		std::cerr << "efkmatc: TextureObjectParameter has an unexpected property layout\n";
+		return ExitEditFailure;
+	}
+	material->ChangeValue(node->Properties[static_cast<size_t>(nameIndex)], name);
+	const auto resolved = ResolvePath(texturePath, BaseDirectory(destination));
+	if (!resolved.empty() && !std::filesystem::exists(resolved))
+	{
+		std::cerr << "efkmatc: warning: texture does not exist: " << resolved << "\n";
+	}
+	material->ChangeValue(node->Properties[textureIndex], resolved);
+
+	std::cout << "added TextureObjectParameter " << name << " node=" << node->GUID << "\n";
+	return SaveMaterial(material, path, destination);
+}
+
+int CommandAddUniform(const std::string& path, const std::string& destination, const std::string& name, const std::string& defaultValue)
+{
+	if (name.empty() || defaultValue.empty())
+	{
+		std::cerr << "efkmatc: add-uniform needs --name NAME and --default x[,y,z,w]\n";
+		return ExitUsage;
+	}
+
+	std::array<float, 4> parsed{};
+	int components = 0;
+	if (!ParseFloat4(defaultValue, parsed, &components))
+	{
+		std::cerr << "efkmatc: --default needs one through four finite comma-separated values\n";
+		return ExitUsage;
+	}
+
+	// Pick the matching ParameterN based on the validated component count.
+	const std::array<std::string, 4> typeNames = {"Parameter1", "Parameter2", "Parameter3", "Parameter4"};
+	const std::string typeName = typeNames[static_cast<size_t>(components - 1)];
+
+	auto material = LoadGraph(path);
+	if (material == nullptr)
+	{
+		return ExitLoadFailure;
+	}
+
+	auto library = std::make_shared<EffekseerMaterial::Library>();
+	auto parameter = FindLibraryNode(library, typeName);
+	if (parameter == nullptr)
+	{
+		std::cerr << "efkmatc: library does not expose " << typeName << "\n";
+		return ExitEditFailure;
+	}
+
+	auto node = material->CreateNode(parameter, true);
+	node->Pos = EffekseerMaterial::Vector2DF(0.0f, 300.0f);
+
+	const int32_t nameIndex = node->Parameter->GetPropertyIndex("Name");
+	const int32_t valueIndex = node->Parameter->GetPropertyIndex("Value");
+	if (nameIndex < 0 || valueIndex < 0 || static_cast<size_t>(nameIndex) >= node->Properties.size() ||
+		static_cast<size_t>(valueIndex) >= node->Properties.size())
+	{
+		std::cerr << "efkmatc: " << typeName << " has an unexpected property layout\n";
+		return ExitEditFailure;
+	}
+	material->ChangeValue(node->Properties[static_cast<size_t>(nameIndex)], name);
+	material->ChangeValue(node->Properties[static_cast<size_t>(valueIndex)], parsed);
+
+	std::cout << "added " << typeName << " " << name << " node=" << node->GUID << "\n";
+	return SaveMaterial(material, path, destination);
+}
+
+int CommandSetCustomData(const std::string& path, const std::string& destination, int slot, const std::string& defaultValue)
+{
+	if (slot < 0 || slot > 1)
+	{
+		std::cerr << "efkmatc: set-custom-data --slot must be 0 or 1\n";
+		return ExitUsage;
+	}
+	if (defaultValue.empty())
+	{
+		std::cerr << "efkmatc: set-custom-data needs --default x[,y,z,w]\n";
+		return ExitUsage;
+	}
+
+	std::array<float, 4> parsed{};
+	if (!ParseFloat4(defaultValue, parsed))
+	{
+		std::cerr << "efkmatc: cannot parse --default " << defaultValue << "\n";
+		return ExitUsage;
+	}
+
+	auto material = LoadGraph(path);
+	if (material == nullptr)
+	{
+		return ExitLoadFailure;
+	}
+
+	material->CustomData[slot].Values = parsed;
+	std::cout << "CustomData[" << slot << "] = " << Floats4(parsed) << "\n";
+	return SaveMaterial(material, path, destination);
+}
+
+int CommandSetShadingModel(const std::string& path, const std::string& destination, const std::string& value)
+{
+	int shadingModel = -1;
+	if (value == "lit" || value == "Lit")
+	{
+		shadingModel = 0;
+	}
+	else if (value == "unlit" || value == "Unlit")
+	{
+		shadingModel = 1;
+	}
+	if (shadingModel < 0)
+	{
+		std::cerr << "efkmatc: set-shading-model --shading-model must be lit or unlit\n";
+		return ExitUsage;
+	}
+
+	auto material = LoadGraph(path);
+	if (material == nullptr)
+	{
+		return ExitLoadFailure;
+	}
+
+	auto output = FindOutputNode(material);
+	if (output == nullptr)
+	{
+		std::cerr << "efkmatc: no Output node in " << path << "\n";
+		return ExitEditFailure;
+	}
+
+	const int32_t index = output->Parameter->GetPropertyIndex("ShadingModel");
+	if (index < 0 || static_cast<size_t>(index) >= output->Properties.size())
+	{
+		std::cerr << "efkmatc: Output node has an unexpected ShadingModel property layout\n";
+		return ExitEditFailure;
+	}
+	std::array<float, 4> valueArray{};
+	valueArray[0] = static_cast<float>(shadingModel);
+	material->ChangeValue(output->Properties[index], valueArray);
+
+	std::cout << "ShadingModel = " << value << "\n";
+	return SaveMaterial(material, path, destination);
+}
+
 int CommandValidate(const std::string& path)
 {
 	auto material = LoadGraph(path);
@@ -1072,6 +1783,10 @@ int main(int argc, char** argv)
 	std::string floatValue;
 	std::string fromPrefix;
 	std::string toPrefix;
+	std::string newName;
+	std::string defaultValue;
+	std::string shadingModelValue;
+	int customDataSlot = -1;
 	uint64_t nodeGuid = 0;
 	bool asJson = false;
 	bool verify = false;
@@ -1163,6 +1878,30 @@ int main(int argc, char** argv)
 		{
 			batchDirectory = argv[++i];
 		}
+		else if (argument == "--name" && hasValue)
+		{
+			newName = argv[++i];
+		}
+		else if (argument == "--default" && hasValue)
+		{
+			defaultValue = argv[++i];
+		}
+		else if (argument == "--slot" && hasValue)
+		{
+			try
+			{
+				customDataSlot = std::stoi(argv[++i]);
+			}
+			catch (const std::exception&)
+			{
+				std::cerr << "efkmatc: --slot expects an integer\n";
+				return ExitUsage;
+			}
+		}
+		else if (argument == "--shading-model" && hasValue)
+		{
+			shadingModelValue = argv[++i];
+		}
 		else if (!argument.empty() && argument[0] == '-')
 		{
 			std::cerr << "efkmatc: unknown option " << argument << "\n";
@@ -1219,7 +1958,9 @@ int main(int argc, char** argv)
 		return CommandProps(input);
 	}
 
-	if (command == "set" || command == "set-texture" || command == "set-value" || command == "retarget")
+	if (command == "set" || command == "set-texture" || command == "set-value" || command == "retarget" ||
+		command == "add-texture" || command == "add-uniform" || command == "set-custom-data" ||
+		command == "set-shading-model")
 	{
 		std::string destination;
 		if (!ResolveEditTarget(input, output, inPlace, destination))
@@ -1239,12 +1980,40 @@ int main(int argc, char** argv)
 		{
 			return CommandSetNamed(input, destination, parameterName, false, stringValue, floatValue);
 		}
-		if (!sawToPrefix)
+		if (command == "retarget")
 		{
-			std::cerr << "efkmatc: retarget needs --to PREFIX (use --to '' to strip)\n";
-			return ExitUsage;
+			if (!sawToPrefix)
+			{
+				std::cerr << "efkmatc: retarget needs --to PREFIX (use --to '' to strip)\n";
+				return ExitUsage;
+			}
+			return CommandRetarget(input, destination, fromPrefix, toPrefix);
 		}
-		return CommandRetarget(input, destination, fromPrefix, toPrefix);
+		if (command == "add-texture")
+		{
+			return CommandAddTexture(input, destination, newName, stringValue);
+		}
+		if (command == "add-uniform")
+		{
+			return CommandAddUniform(input, destination, newName, defaultValue);
+		}
+		if (command == "set-custom-data")
+		{
+			return CommandSetCustomData(input, destination, customDataSlot, defaultValue);
+		}
+		if (command == "set-shading-model")
+		{
+			return CommandSetShadingModel(input, destination, shadingModelValue);
+		}
+	}
+
+	if (command == "from-spec")
+	{
+		return CommandFromSpec(input, output);
+	}
+	if (command == "save-spec")
+	{
+		return CommandSaveSpec(input, output);
 	}
 
 	std::cerr << "efkmatc: unknown command " << command << "\n";
