@@ -2,46 +2,98 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Text.Json;
-using System.Text.Json.Serialization;
 
 namespace EffekseerValidate
 {
-	// Format Issues for human (clang-style path:line:col: sev: msg) or JSON
-	// (for AI consumption). Emits to stdout; exit code is computed separately.
+	// [UAA] - START - efkc JSON contract and policy-aware exit codes
+	// Output formatting for efkc results. Machine output goes to stdout and
+	// diagnostics to stderr, so under --json the two streams stay separable.
+	// Exit codes are computed from the same policy the JSON records use, so a
+	// JSON record can never claim a file passed while the process exits
+	// nonzero (including warning-only files under --strict, which fold into
+	// status "error").
 	public static class CliOutput
 	{
-		public static void Emit(string path, List<Issue> issues, bool jsonMode)
+		static readonly JsonSerializerOptions JsonOptions = new JsonSerializerOptions
 		{
-			if (jsonMode)
-			{
-				EmitJson(path, issues);
-				return;
-			}
+			WriteIndented = true,
+		};
 
-			EmitHuman(issues);
+		// Policy-aware status: warnings fold into "error" under --strict.
+		public static string StatusFor(List<Issue> issues, bool strict)
+		{
+			if (issues.Any(i => i.Severity == Severity.Error)) return "error";
+			if (issues.Any(i => i.Severity == Severity.Warning)) return strict ? "error" : "warning";
+			return "ok";
 		}
 
-		// Exit codes:
-		//   0 = OK (no errors, no warnings)
-		//   1 = errors (or warnings with --strict)
-		//   2 = warnings only, not --strict
-		//   3 = internal exception (handled at the Main boundary, not here)
+		// Exit codes: 0 = ok, 1 = errors (or warnings with --strict),
+		// 2 = warnings only. 3 (internal exception) and 64 (usage error) are
+		// handled at the Main boundary, not here.
 		public static int ExitCode(List<Issue> issues, bool strict)
 		{
-			var hasErrors = issues.Any(i => i.Severity == Severity.Error);
-			var hasWarnings = issues.Any(i => i.Severity == Severity.Warning);
-			if (hasErrors) return 1;
-			if (hasWarnings && strict) return 1;
-			if (hasWarnings) return 2;
+			var status = StatusFor(issues, strict);
+			return status == "error" ? 1 : status == "warning" ? 2 : 0;
+		}
+
+		public static int ValidateExitCode(IReadOnlyList<ValidationRunner.FileResult> results)
+		{
+			if (results.Any(r => r.Status == "error")) return 1;
+			if (results.Any(r => r.Status == "warning")) return 2;
 			return 0;
 		}
 
-		static void EmitHuman(List<Issue> issues)
+		public static object IssueRecord(Issue i)
 		{
+			return new { line = i.Line, column = i.Column, message = i.Message };
+		}
+
+		public static void EmitValidateJson(IReadOnlyList<ValidationRunner.FileResult> results, bool strict)
+		{
+			var payload = new
+			{
+				results = results.Select(r => new
+				{
+					path = r.Path,
+					status = r.Status,
+					errors = r.Issues.Where(i => i.Severity == Severity.Error).Select(IssueRecord).ToArray(),
+					warnings = r.Issues.Where(i => i.Severity == Severity.Warning).Select(IssueRecord).ToArray(),
+				}).ToArray(),
+				summary = new
+				{
+					files = results.Count,
+					ok = results.Count(r => r.Status == "ok"),
+					warning = results.Count(r => r.Status == "warning"),
+					error = results.Count(r => r.Status == "error"),
+					strict,
+					exitCode = ValidateExitCode(results),
+				},
+			};
+			Console.WriteLine(JsonSerializer.Serialize(payload, JsonOptions));
+		}
+
+		public static void EmitValidateHuman(IReadOnlyList<ValidationRunner.FileResult> results)
+		{
+			foreach (var r in results)
+				EmitHumanFile(r);
+
+			if (results.Count > 1)
+			{
+				var ok = results.Count(r => r.Status == "ok");
+				var warn = results.Count(r => r.Status == "warning");
+				var err = results.Count(r => r.Status == "error");
+				Console.WriteLine(
+					$"summary: {results.Count} file(s): {ok} ok, {warn} warning, {err} error (exit {ValidateExitCode(results)})");
+			}
+		}
+
+		public static void EmitHumanFile(ValidationRunner.FileResult r)
+		{
+			var issues = r.Issues.OrderBy(i => i.Line).ThenBy(i => i.Column).ToList();
 			if (issues.Count == 0)
 				return;
 
-			foreach (var i in issues.OrderBy(i => i.Line).ThenBy(i => i.Column))
+			foreach (var i in issues)
 			{
 				var sev = i.Severity == Severity.Error ? "error" : "warning";
 				Console.WriteLine($"{i.Path}:{i.Line}:{i.Column}: {sev}: {i.Message}");
@@ -49,28 +101,35 @@ namespace EffekseerValidate
 
 			var errCount = issues.Count(i => i.Severity == Severity.Error);
 			var warnCount = issues.Count(i => i.Severity == Severity.Warning);
-			var summary = errCount > 0
+			Console.WriteLine(errCount > 0
 				? $"{issues.Count} issue(s): {errCount} error(s), {warnCount} warning(s)"
-				: $"{warnCount} warning(s)";
-			Console.WriteLine(summary);
+				: $"{warnCount} warning(s)");
 		}
 
-		static void EmitJson(string path, List<Issue> issues)
+		public static void EmitResourcesJson(string path, EffectEdit.WalkResult walk)
 		{
+			var used = walk.Resources.Where(r => !string.IsNullOrEmpty(r.Relative)).ToList();
 			var payload = new
 			{
 				path,
-				ok = !issues.Any(i => i.Severity == Severity.Error),
-				issues = issues.Select(i => new
+				resources = used.Select(r => new
 				{
-					line = i.Line,
-					column = i.Column,
-					severity = i.Severity == Severity.Error ? "error" : "warning",
-					message = i.Message,
+					kind = r.Kind,
+					location = r.Location,
+					relative = r.Relative,
+					absolute = r.Absolute,
+					exists = r.Exists,
 				}).ToArray(),
+				warnings = walk.Warnings.ToArray(),
+				counts = new
+				{
+					total = used.Count,
+					empty = walk.Resources.Count - used.Count,
+					missing = used.Count(r => !r.Exists),
+				},
 			};
-			var options = new JsonSerializerOptions { DefaultIgnoreCondition = JsonIgnoreCondition.Never };
-			Console.WriteLine(JsonSerializer.Serialize(payload, options));
+			Console.WriteLine(JsonSerializer.Serialize(payload, JsonOptions));
 		}
 	}
 }
+// [UAA] - END

@@ -26,7 +26,7 @@ namespace EffekseerValidate
 			var dir = Path.GetFullPath(dirPath);
 			if (!Directory.Exists(dir))
 			{
-				Console.Error.WriteLine($"effekseer-validate: --self-test directory not found: {dir}");
+				Console.Error.WriteLine($"efkc: self-test directory not found: {dir}");  // [UAA]
 				return 64;
 			}
 
@@ -38,7 +38,7 @@ namespace EffekseerValidate
 
 			if (files.Count == 0)
 			{
-				Console.Error.WriteLine($"effekseer-validate: --self-test found no .efkproj/.efkefc files in: {dir}");
+				Console.Error.WriteLine($"efkc: self-test found no .efkproj/.efkefc files in: {dir}");  // [UAA]
 				return 1;
 			}
 
