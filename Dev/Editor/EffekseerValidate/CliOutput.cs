@@ -45,20 +45,50 @@ namespace EffekseerValidate
 
 		public static object IssueRecord(Issue i)
 		{
-			return new { line = i.Line, column = i.Column, message = i.Message };
+			return new { code = i.Code, line = i.Line, column = i.Column, message = i.Message };
+		}
+
+		// Machine-readable resource audit. notRun states carry only state +
+		// reason: counts were never produced, so no zeros are fabricated.
+		static object AuditRecord(ResourceCheck.ResourceAudit a)
+		{
+			var record = new Dictionary<string, object> { ["state"] = a.State };
+			if (a.State == "notRun")
+			{
+				record["reason"] = a.Reason;
+			}
+			else
+			{
+				record["referenced"] = a.Referenced;
+				record["empty"] = a.Empty;
+				record["missing"] = a.Missing;
+				record["walkerBlindSpots"] = a.WalkerBlindSpots;
+				record["blindSpotLocations"] = a.BlindSpotLocations;
+			}
+			return record;
+		}
+
+		static object ResultRecord(ValidationRunner.FileResult r)
+		{
+			var record = new Dictionary<string, object>
+			{
+				["path"] = r.Path,
+				["status"] = r.Status,
+				["errors"] = r.Issues.Where(i => i.Severity == Severity.Error).Select(IssueRecord).ToArray(),
+				["warnings"] = r.Issues.Where(i => i.Severity == Severity.Warning).Select(IssueRecord).ToArray(),
+			};
+			// resourceAudit is absent entirely unless --check-resources ran, so
+			// the pre-audit JSON shape remains compatible; issue codes are additive.
+			if (r.Audit != null)
+				record["resourceAudit"] = AuditRecord(r.Audit);
+			return record;
 		}
 
 		public static void EmitValidateJson(IReadOnlyList<ValidationRunner.FileResult> results, bool strict)
 		{
 			var payload = new
 			{
-				results = results.Select(r => new
-				{
-					path = r.Path,
-					status = r.Status,
-					errors = r.Issues.Where(i => i.Severity == Severity.Error).Select(IssueRecord).ToArray(),
-					warnings = r.Issues.Where(i => i.Severity == Severity.Warning).Select(IssueRecord).ToArray(),
-				}).ToArray(),
+				results = results.Select(ResultRecord).ToArray(),
 				summary = new
 				{
 					files = results.Count,

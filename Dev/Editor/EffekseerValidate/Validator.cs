@@ -73,9 +73,24 @@ namespace EffekseerValidate
 			return true;
 		}
 
+		// The detailed per-file result: issues plus the optional resource
+		// audit. Audit is null unless the caller requested --check-resources,
+		// so JSON stays byte-compatible when the flag is absent.
+		public sealed class ValidatorResult
+		{
+			public List<Issue> Issues = new List<Issue>();
+			public ResourceCheck.ResourceAudit Audit = null;
+		}
+
+		// Compatibility wrapper: existing callers (e.g. retarget verification)
+		// keep `Run(...) -> List<Issue>` unchanged.
 		public static List<Issue> Run(string rawPath, Options options, Schema.Document schema)
+			=> RunDetailed(rawPath, options, schema).Issues;
+
+		public static ValidatorResult RunDetailed(string rawPath, Options options, Schema.Document schema)
 		{
 			var issues = new List<Issue>();
+			var audit = options.CheckResources ? new ResourceCheck.ResourceAudit { State = "notRun" } : null;
 			var path = Path.GetFullPath(rawPath);
 
 			// Warn if the loaded schema is from a different EffekseerCore version
@@ -93,7 +108,8 @@ namespace EffekseerValidate
 			if (!EffekseerLoad.TryLoad(path, out var doc, out var root, out var loadIssues))
 			{
 				issues.AddRange(loadIssues);
-				return issues;
+				if (audit != null) audit.Reason = "load_failed";
+				return new ValidatorResult { Issues = issues, Audit = audit };
 			}
 
 			// TryLoad already ran the structural pass (so missing required
@@ -134,10 +150,25 @@ namespace EffekseerValidate
 
 			// Resource gate: missing references and walker blind spots become
 			// issues. Only meaningful once the file itself loaded cleanly.
-			if (options.CheckResources && !issues.Any(i => i.Severity == Severity.Error))
-				issues.AddRange(ResourceCheck.Run(path, root));
+			// The audit is explicit about why the walk did not run: a failed
+			// load (load_failed, handled above) or any earlier error in this
+			// pipeline (prior_validation_error). When the walk does run, its
+			// own snapshot replaces the placeholder.
+			if (options.CheckResources)
+			{
+				if (issues.Any(i => i.Severity == Severity.Error))
+				{
+					audit.Reason = "prior_validation_error";
+				}
+				else
+				{
+					var detailed = ResourceCheck.RunDetailed(path, root);
+					issues.AddRange(detailed.Issues);
+					audit = detailed.Audit;
+				}
+			}
 
-			return issues;
+			return new ValidatorResult { Issues = issues, Audit = audit };
 		}
 
 				// .efkefc has no raw on-disk XML to compare against (the EDIT
