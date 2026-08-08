@@ -42,6 +42,21 @@ namespace EffekseerValidate
 		{
 			public List<Resource> Resources = new List<Resource>();
 			public List<string> Warnings = new List<string>();
+			public List<BlindSpot> BlindSpots = new List<BlindSpot>();
+
+			// Normalized member locations of walker blind spots, e.g.
+			// "Root.Children[0].Foo.Bar". Deliberately NOT the unreadable
+			// value's path: an unreadable getter proves a member location was
+			// not inspected, it cannot reveal an unknown hidden resource path.
+			// Raw exception text never appears here (or in Warnings) - the
+			// exception type is dropped at the walker boundary.
+			public List<string> BlindSpotLocations = new List<string>();
+		}
+
+		public sealed class BlindSpot
+		{
+			public string Location;
+			public string Message;
 		}
 
 		public sealed class RetargetChange
@@ -150,8 +165,14 @@ namespace EffekseerValidate
 					// resource threaten inventory completeness, so those are the
 					// ones worth reporting as walker blind spots.
 					if (CouldHoldResources(property.PropertyType))
-						result.Warnings.Add(
-							$"could not read {location}.{property.Name} ({property.PropertyType.Name}); inventory may be incomplete");
+					{
+						var blindSpotLocation = location + "." + property.Name;
+						var blindSpotMessage =
+							$"could not read {blindSpotLocation} ({property.PropertyType.Name}); inventory may be incomplete";
+						result.Warnings.Add(blindSpotMessage);
+						result.BlindSpots.Add(new BlindSpot { Location = blindSpotLocation, Message = blindSpotMessage });
+						result.BlindSpotLocations.Add(blindSpotLocation);
+					}
 					continue;
 				}
 
@@ -168,8 +189,14 @@ namespace EffekseerValidate
 				catch (Exception)
 				{
 					if (CouldHoldResources(field.FieldType))
-						result.Warnings.Add(
-							$"could not read {location}.{field.Name} ({field.FieldType.Name}); inventory may be incomplete");
+					{
+						var blindSpotLocation = location + "." + field.Name;
+						var blindSpotMessage =
+							$"could not read {blindSpotLocation} ({field.FieldType.Name}); inventory may be incomplete";
+						result.Warnings.Add(blindSpotMessage);
+						result.BlindSpots.Add(new BlindSpot { Location = blindSpotLocation, Message = blindSpotMessage });
+						result.BlindSpotLocations.Add(blindSpotLocation);
+					}
 					continue;
 				}
 
@@ -370,26 +397,88 @@ namespace EffekseerValidate
 	// validate --check-resources: turns resource-walker findings into
 	// validation issues. Missing files are errors (the corpus gate); walker
 	// blind spots (unreadable reflection getters) are warnings.
+	//
+	// The audit and the issue list are always built from ONE WalkResult
+	// snapshot so they cannot disagree. States: "complete" (walk ran, no
+	// blind spots), "partial" (walk ran, one or more blind spots),
+	// "notRun" (walk did not run; Reason carries a machine-readable cause and
+	// no zero counts are fabricated).
 	public static class ResourceCheck
 	{
-		public static List<Issue> Run(string path, NodeRoot root)
+		public sealed class ResourceAudit
 		{
-			var issues = new List<Issue>();
-			var walk = EffectEdit.WalkResources(root);
+			public string State = "notRun"; // complete | partial | notRun
+			public string Reason = "";      // machine reason when State == "notRun"
+			public int Referenced;          // non-empty relative-path slots (occurrences, not distinct assets)
+			public int Empty;               // empty-path slots; Referenced + Empty == discovered Value.Path slots
+			public int Missing;             // referenced slots whose file does not exist
+			public int WalkerBlindSpots;    // normalized blind-spot locations (sorted, deduplicated)
+			public List<string> BlindSpotLocations = new List<string>();
+		}
+
+		public sealed class ResourceCheckResult
+		{
+			public List<Issue> Issues = new List<Issue>();
+			public ResourceAudit Audit = new ResourceAudit();
+		}
+
+		// Compatibility wrapper: the pre-audit surface stays exactly
+		// `Run(path, root) -> List<Issue>`.
+		public static List<Issue> Run(string path, NodeRoot root)
+			=> RunDetailed(path, root).Issues;
+
+		public static ResourceCheckResult RunDetailed(string path, NodeRoot root)
+			=> BuildResult(path, EffectEdit.WalkResources(root));
+
+		// One walk snapshot feeds both the issues and the audit. Blind-spot
+		// locations are sorted and deduplicated here so the JSON is
+		// deterministic; the normalized location strings themselves were
+		// produced at the walker boundary.
+		public static ResourceCheckResult BuildResult(string path, EffectEdit.WalkResult walk)
+		{
+			var result = new ResourceCheckResult();
+			// The structured list is produced by the reflection walk. The fallback
+			// keeps BuildResult useful for small test seams that construct a
+			// WalkResult directly, while still collapsing duplicate locations into
+			// one machine issue and one audit location.
+			var spots = walk.BlindSpots.ToList();
+			if (spots.Count == 0)
+			{
+				foreach (var location in walk.BlindSpotLocations.Distinct(StringComparer.Ordinal))
+				{
+					var index = walk.BlindSpotLocations.IndexOf(location);
+					var message = index >= 0 && index < walk.Warnings.Count
+						? walk.Warnings[index]
+						: $"could not read {location}; inventory may be incomplete";
+					spots.Add(new EffectEdit.BlindSpot { Location = location, Message = message });
+				}
+			}
+
+			var uniqueSpots = spots
+				.GroupBy(x => x.Location, StringComparer.Ordinal)
+				.Select(group => group.First())
+				.OrderBy(x => x.Location, StringComparer.Ordinal)
+				.ToList();
 
 			foreach (var r in walk.Resources)
 			{
 				if (string.IsNullOrEmpty(r.Relative))
 					continue;
 				if (!r.Exists)
-					issues.Add(Issue.Error(path, 0, 0,
-						$"resource not found: {r.Relative} (from {r.Location})"));
+					result.Issues.Add(Issue.Error(path, 0, 0,
+						$"resource not found: {r.Relative} (from {r.Location})", "resource_missing"));
 			}
 
-			foreach (var w in walk.Warnings)
-				issues.Add(Issue.Warning(path, 0, 0, $"resource walker: {w}"));
+			foreach (var spot in uniqueSpots)
+				result.Issues.Add(Issue.Warning(path, 0, 0, $"resource walker: {spot.Message}", "resource_walker_blind_spot"));
 
-			return issues;
+			result.Audit.State = walk.Warnings.Count > 0 || uniqueSpots.Count > 0 ? "partial" : "complete";
+			result.Audit.Referenced = walk.Resources.Count(r => !string.IsNullOrEmpty(r.Relative));
+			result.Audit.Empty = walk.Resources.Count(r => string.IsNullOrEmpty(r.Relative));
+			result.Audit.Missing = walk.Resources.Count(r => !string.IsNullOrEmpty(r.Relative) && !r.Exists);
+			result.Audit.WalkerBlindSpots = uniqueSpots.Count;
+			result.Audit.BlindSpotLocations = uniqueSpots.Select(x => x.Location).ToList();
+			return result;
 		}
 	}
 }

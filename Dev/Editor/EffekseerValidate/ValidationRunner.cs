@@ -18,6 +18,9 @@ namespace EffekseerValidate
 			public string Path; // canonical absolute path
 			public List<Issue> Issues = new List<Issue>();
 			public string Status; // ok | warning | error (strict applied)
+			// Resource audit; null unless validate ran with --check-resources.
+			// Synthetic results carry explicit notRun states (see ErrorResult).
+			public ResourceCheck.ResourceAudit Audit;
 		}
 
 		public static int Run(Args args)
@@ -40,7 +43,8 @@ namespace EffekseerValidate
 						var failureResults = new List<FileResult>
 						{
 							ErrorResult(failurePath,
-								schemaIssues.Count > 0 ? schemaIssues[0].Message : "schema preparation failed"),
+								schemaIssues.Count > 0 ? schemaIssues[0].Message : "schema preparation failed",
+								args.CheckResources ? "schema_preparation_failed" : null),
 						};
 						CliOutput.EmitValidateJson(failureResults, args.Strict);
 					}
@@ -63,14 +67,15 @@ namespace EffekseerValidate
 			};
 
 			var results = new List<FileResult>();
-			foreach (var input in ExpandInputs(args.Paths, results))
+			foreach (var input in ExpandInputs(args.Paths, results, args.CheckResources))
 			{
-				var issues = Validator.Run(input, options, schema);
+				var detailed = Validator.RunDetailed(input, options, schema);
 				results.Add(new FileResult
 				{
 					Path = input,
-					Issues = issues,
-					Status = CliOutput.StatusFor(issues, args.Strict),
+					Issues = detailed.Issues,
+					Status = CliOutput.StatusFor(detailed.Issues, args.Strict),
+					Audit = detailed.Audit,
 				});
 			}
 
@@ -92,7 +97,7 @@ namespace EffekseerValidate
 		// Expands files and directories into the canonical list. Missing files
 		// and empty directories become synthetic error results so they show up
 		// in the output (and fail the run) rather than being silently skipped.
-		static List<string> ExpandInputs(List<string> inputs, List<FileResult> results)
+		static List<string> ExpandInputs(List<string> inputs, List<FileResult> results, bool checkResources)
 		{
 			var files = new List<string>();
 			foreach (var raw in inputs)
@@ -106,7 +111,8 @@ namespace EffekseerValidate
 						.OrderBy(f => f, StringComparer.Ordinal)
 						.ToList();
 					if (found.Count == 0)
-						results.Add(ErrorResult(full, $"no .efkefc files found in directory: {raw}"));
+						results.Add(ErrorResult(full, $"no .efkefc files found in directory: {raw}",
+							checkResources ? "synthetic_input_error" : null));
 					files.AddRange(found);
 				}
 				else if (File.Exists(full))
@@ -117,7 +123,8 @@ namespace EffekseerValidate
 				}
 				else
 				{
-					results.Add(ErrorResult(full, $"file not found: {raw}"));
+					results.Add(ErrorResult(full, $"file not found: {raw}",
+						checkResources ? "synthetic_input_error" : null));
 				}
 			}
 			return files
@@ -134,14 +141,17 @@ namespace EffekseerValidate
 				? StringComparer.OrdinalIgnoreCase
 				: StringComparer.Ordinal;
 
-		static FileResult ErrorResult(string path, string message)
+		static FileResult ErrorResult(string path, string message, string auditReason)
 		{
-			return new FileResult
+			var result = new FileResult
 			{
 				Path = path,
 				Status = "error",
 				Issues = new List<Issue> { Issue.Error(path, 0, 0, message) },
 			};
+			if (auditReason != null)
+				result.Audit = new ResourceCheck.ResourceAudit { State = "notRun", Reason = auditReason };
+			return result;
 		}
 	}
 }
