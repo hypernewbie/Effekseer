@@ -16,6 +16,7 @@ namespace EffekseerValidate
 	//   resources  - inventory of every image/model/sound/material reference
 	//   retarget   - rewrite resource path prefixes and save the result
 	//   export     - cook the runtime .efk an application loads
+	//   from-spec  - author an .efkefc from a strict JSON spec
 	//   self-test  - Core/schema-drift check over a directory
 	class Program
 	{
@@ -32,6 +33,21 @@ namespace EffekseerValidate
 			"      rewrite resource path prefixes (segment-aware) and save the result\n" +
 			"  export INPUT --output OUT.efk [--magnification N] [--force]\n" +
 			"      cook the runtime .efk an application loads\n" +
+			"  from-spec SPEC.json --output OUT.efkefc [--force]\n" +
+			"      author an effect from a JSON spec. Spec shape:\n" +
+			"        name (string), settings {start_frame, end_frame, is_loop}\n" +
+			"        (top level only), common {max_generation >= 1, spawn_count,\n" +
+			"        lifetime, color [r,g,b,a] in [0,1]}, renderer {type:\n" +
+			"        sprite|ribbon|ring|model|track|none, color_texture: relative path},\n" +
+			"        children [same shape]. spawn_count/lifetime accept an integer\n" +
+			"        or {center,min,max} with center == (min+max)/2; color is\n" +
+			"        normalized and converted to editor 0..255 channels (round\n" +
+			"        half away from zero). Integer fields reject fractional\n" +
+			"        values; unknown fields, wrong types, invalid ranges and\n" +
+			"        out-of-range color channels are rejected; effective frame\n" +
+			"        bounds (omitted keys default to 0/120) must satisfy\n" +
+			"        start <= end. The output is verified before it replaces\n" +
+			"        the destination (unique sibling temp, atomic force-aware move).\n" +
 			"  self-test DIR\n" +
 			"      walk DIR for .efkproj/.efkefc, run schema check against Core's\n" +
 			"      own dump of each, require zero errors (Core/schema-drift check)\n" +
@@ -64,6 +80,10 @@ namespace EffekseerValidate
 			"  --output <out.efk>    destination (required)\n" +
 			"  --magnification <f>   scale applied by export (default 1.0; must be\n" +
 			"                        finite and greater than zero)\n" +
+			"  --force               overwrite an existing --output\n" +
+			"\n" +
+			"from-spec options:\n" +
+			"  --output <out.efkefc> destination (required; also -o)\n" +
 			"  --force               overwrite an existing --output\n" +
 			"\n" +
 			"  -h, --help            show this help\n" +
@@ -111,6 +131,8 @@ namespace EffekseerValidate
 						return RetargetCommand.Run(parsed);
 					case EfkcCommand.Export:
 						return ExportCommand.Run(parsed);
+					case EfkcCommand.FromSpec:
+						return FromSpecCommand.Run(parsed);
 					case EfkcCommand.SelfTest:
 						return SelfTest.Run(parsed.SelfTestDir!);
 					default:
@@ -134,6 +156,7 @@ namespace EffekseerValidate
 		Resources,
 		Retarget,
 		Export,
+		FromSpec,
 		SelfTest,
 	}
 
@@ -196,6 +219,9 @@ namespace EffekseerValidate
 				case "export":
 					parsed.Command = EfkcCommand.Export;
 					return ParseExport(rest, parsed, out error);
+				case "from-spec":
+					parsed.Command = EfkcCommand.FromSpec;
+					return ParseFromSpec(rest, parsed, out error);
 				case "self-test":
 					parsed.Command = EfkcCommand.SelfTest;
 					return ParseSelfTest(rest, parsed, out error);
@@ -420,6 +446,52 @@ namespace EffekseerValidate
 			if (parsed.Output == null)
 			{
 				error = "export requires --output OUT.efk";
+				return false;
+			}
+			return true;
+		}
+
+		static bool ParseFromSpec(string[] argv, Args parsed, out string error)
+		{
+			error = "";
+			var positionals = new List<string>();
+			for (int i = 0; i < argv.Length; i++)
+			{
+				var a = argv[i];
+				switch (a)
+				{
+					case "-h":
+					case "--help": parsed.Help = true; return true;
+					case "--output":
+					case "-o":
+						if (!TakeValue(argv, ref i, a, out var outPath, out error)) return false;
+						parsed.Output = outPath;
+						break;
+					case "--force": parsed.Force = true; break;
+					default:
+						if (a.StartsWith("-"))
+						{
+							error = $"unknown option for from-spec: {a}";
+							return false;
+						}
+						positionals.Add(a);
+						break;
+				}
+			}
+			if (positionals.Count == 0)
+			{
+				error = "from-spec requires SPEC.json";
+				return false;
+			}
+			if (positionals.Count > 1)
+			{
+				error = $"from-spec accepts exactly one SPEC.json, got {positionals.Count}";
+				return false;
+			}
+			parsed.Paths = positionals;
+			if (parsed.Output == null)
+			{
+				error = "from-spec requires --output OUT.efkefc";
 				return false;
 			}
 			return true;
