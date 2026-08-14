@@ -143,6 +143,13 @@ struct ParameterRendererCommon
 			}
 			pos.Skip(sizeof(int));
 
+			// [UAA] - START - skip the v1800 legacy 4-int32 field after MaterialType
+			if (version == Version18Alpha1 && !pos.Skip(4 * sizeof(int)))
+			{
+				return pos.MarkFailed();
+			}
+			// [UAA] - END
+
 			Distortion = MaterialType == RendererMaterialType::BackDistortion;
 
 			if (MaterialType == RendererMaterialType::Default || MaterialType == RendererMaterialType::Lighting)
@@ -275,39 +282,6 @@ struct ParameterRendererCommon
 			pos.Skip(sizeof(int));
 		}
 
-		// [UAA] - START - safely read the legacy v1800 RendererCommon layout
-		// Skip four extra int32s only when current AlphaBlend is invalid and the
-		// candidate 16 bytes ahead is valid; keep all reads bounded.
-		if (version == Version18Alpha1)
-		{
-			const size_t alphaBlendOffset = pos.GetOffset();
-			int32_t peekCurrent = 0;
-			if (!pos.Peek(&peekCurrent, sizeof(peekCurrent)))
-			{
-				return pos.MarkFailed();
-			}
-
-			if (peekCurrent < 0 || peekCurrent > 4)
-			{
-				constexpr size_t legacyPaddingSize = 4 * sizeof(int32_t);
-				int32_t peekLegacy = 0;
-				if (pos.CanRead(legacyPaddingSize + sizeof(peekLegacy)))
-				{
-					if (!pos.SetOffset(alphaBlendOffset + legacyPaddingSize) ||
-						!pos.Peek(&peekLegacy, sizeof(peekLegacy)) ||
-						!pos.SetOffset(alphaBlendOffset))
-					{
-						return pos.MarkFailed();
-					}
-
-					if (peekLegacy >= 0 && peekLegacy <= 4 && !pos.Skip(legacyPaddingSize))
-					{
-						return pos.MarkFailed();
-					}
-				}
-			}
-		}
-		// [UAA] - END
 
 		if (!pos.Peek(&AlphaBlend, sizeof(int)))
 		{
