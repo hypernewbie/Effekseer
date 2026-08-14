@@ -139,16 +139,6 @@ struct ParameterRendererCommon
 			memcpy(&MaterialType, pos, sizeof(int));
 			pos += sizeof(int);
 
-			// [UAA] - START - v1800 legacy RendererCommon layout carries a 4-int32 field
-			// (constant [1.0f, 0, 0, 0]) right after MaterialType, before
-			// EmissiveScaling and the texture indexes. The current writer (1810)
-			// never emits it.
-			if (version == Version18Alpha1)
-			{
-				pos += 4 * sizeof(int);
-			}
-			// [UAA] - END
-
 			Distortion = MaterialType == RendererMaterialType::BackDistortion;
 
 			if (MaterialType == RendererMaterialType::Default || MaterialType == RendererMaterialType::Lighting)
@@ -246,6 +236,23 @@ struct ParameterRendererCommon
 			pos += sizeof(int);
 		}
 
+		// [UAA] - START - read legacy v1800 layout (4 extra int32s before AlphaBlend)
+		// Skip them only when the in-place AlphaBlend is invalid and +16 is valid.
+		if (version == Version18Alpha1)
+		{
+			int32_t peekCurrent = 0;
+			memcpy(&peekCurrent, pos, sizeof(int32_t));
+			if (peekCurrent < 0 || peekCurrent > 4)
+			{
+				int32_t peekLegacy = 0;
+				memcpy(&peekLegacy, pos + 4 * sizeof(int32_t), sizeof(int32_t));
+				if (peekLegacy >= 0 && peekLegacy <= 4)
+				{
+					pos += 4 * sizeof(int); // skip the 4 legacy extra int32s
+				}
+			}
+		}
+		// [UAA] - END
 		memcpy(&AlphaBlend, pos, sizeof(int));
 		pos += sizeof(int);
 
