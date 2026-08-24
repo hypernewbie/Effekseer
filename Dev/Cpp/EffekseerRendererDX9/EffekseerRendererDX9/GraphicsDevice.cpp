@@ -234,6 +234,12 @@ bool Texture::Init(const Effekseer::Backend::TextureParameter& param, const Effe
 		return false;
 	}
 
+	if (param.Format == Effekseer::Backend::TextureFormatType::BC6H_UF16 || param.Format == Effekseer::Backend::TextureFormatType::BC6H_SF16) // [UAA]
+	{
+		Effekseer::Log(Effekseer::LogType::Error, "BC6H is unsupported on Direct3D 9"); // [UAA]
+		return false; // [UAA]
+	}
+
 	auto device = graphicsDevice_->GetDevice();
 	assert(device != nullptr);
 

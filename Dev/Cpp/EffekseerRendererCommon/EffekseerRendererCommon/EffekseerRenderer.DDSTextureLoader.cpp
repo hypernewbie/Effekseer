@@ -22,6 +22,8 @@ enum class DdsDx10Format : uint32_t
 	BC4_SNORM = 81,
 	BC5_UNORM = 83,
 	BC5_SNORM = 84,
+	BC6H_UF16 = 95, // [UAA]
+	BC6H_SF16 = 96, // [UAA]
 	BC7_UNORM = 98,
 	BC7_UNORM_SRGB = 99,
 };
@@ -148,6 +150,14 @@ bool DDSTextureLoader::Load(const void* data, int32_t size)
 			{
 				return Effekseer::Backend::TextureFormatType::BC7_SRGB;
 			}
+			else if (dds_dxt10.dxgiFormat == DdsDx10Format::BC6H_UF16) // [UAA]
+			{
+				return Effekseer::Backend::TextureFormatType::BC6H_UF16; // [UAA]
+			}
+			else if (dds_dxt10.dxgiFormat == DdsDx10Format::BC6H_SF16) // [UAA]
+			{
+				return Effekseer::Backend::TextureFormatType::BC6H_SF16; // [UAA]
+			}
 			else
 			{
 				return Effekseer::Backend::TextureFormatType::Unknown;
@@ -180,6 +190,26 @@ bool DDSTextureLoader::Load(const void* data, int32_t size)
 	};
 
 	auto format = detectFormat();
+	// [UAA] - START - BC6H requires 2D non-array non-cube no volume
+	if (format == Effekseer::Backend::TextureFormatType::BC6H_UF16 || format == Effekseer::Backend::TextureFormatType::BC6H_SF16)
+	{
+		const uint32_t D3D10_RESOURCE_DIMENSION_TEXTURE2D = 3;
+		const uint32_t DDS_RESOURCE_MISC_TEXTURECUBE = 0x4;
+		const uint32_t DDSCAPS2_VOLUME = 0x00200000;
+		if (dds_dxt10.resourceDimension != D3D10_RESOURCE_DIMENSION_TEXTURE2D)
+			return false;
+		if (dds_dxt10.arraySize != 1)
+			return false;
+		if ((dds_dxt10.miscFlag & DDS_RESOURCE_MISC_TEXTURECUBE) != 0)
+			return false;
+		if ((dds.dwCaps2 & 0x00000200) != 0)
+			return false;
+		if ((dds.dwCaps2 & DDSCAPS2_VOLUME) != 0)
+			return false;
+		if (dds.dwDepth > 1)
+			return false;
+	}
+	// [UAA] - END
 	int32_t blockSize = 0;
 	bool isCompressed = false;
 
@@ -217,6 +247,18 @@ bool DDSTextureLoader::Load(const void* data, int32_t size)
 		textureFormatType_ = Effekseer::TextureFormatType::BC7;
 		blockSize = 16;
 		isCompressed = true;
+	}
+	else if (format == Effekseer::Backend::TextureFormatType::BC6H_UF16) // [UAA]
+	{
+		textureFormatType_ = Effekseer::TextureFormatType::BC6H_UF16; // [UAA]
+		blockSize = 16; // [UAA]
+		isCompressed = true; // [UAA]
+	}
+	else if (format == Effekseer::Backend::TextureFormatType::BC6H_SF16) // [UAA]
+	{
+		textureFormatType_ = Effekseer::TextureFormatType::BC6H_SF16; // [UAA]
+		blockSize = 16; // [UAA]
+		isCompressed = true; // [UAA]
 	}
 	else
 	{

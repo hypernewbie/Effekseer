@@ -255,6 +255,8 @@ enum class TextureFormatType : int32_t
 	BC2,
 	BC3,
 	BC7,
+	BC6H_UF16, // [UAA]
+	BC6H_SF16, // [UAA]
 };
 
 enum class ZSortType : int32_t

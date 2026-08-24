@@ -518,6 +518,8 @@ bool Texture::Init(const Effekseer::Backend::TextureParameter& param, const Effe
 						param.Format == Effekseer::Backend::TextureFormatType::BC2 ||
 						param.Format == Effekseer::Backend::TextureFormatType::BC3 ||
 						param.Format == Effekseer::Backend::TextureFormatType::BC7 ||
+						param.Format == Effekseer::Backend::TextureFormatType::BC6H_UF16 || // [UAA]
+						param.Format == Effekseer::Backend::TextureFormatType::BC6H_SF16 || // [UAA]
 						param.Format == Effekseer::Backend::TextureFormatType::BC1_SRGB ||
 						param.Format == Effekseer::Backend::TextureFormatType::BC2_SRGB ||
 						param.Format == Effekseer::Backend::TextureFormatType::BC3_SRGB ||
@@ -525,12 +527,21 @@ bool Texture::Init(const Effekseer::Backend::TextureParameter& param, const Effe
 
 	const bool isBC7 = param.Format == Effekseer::Backend::TextureFormatType::BC7 ||
 						 param.Format == Effekseer::Backend::TextureFormatType::BC7_SRGB;
+	const bool isBC6H = param.Format == Effekseer::Backend::TextureFormatType::BC6H_UF16 || // [UAA]
+						  param.Format == Effekseer::Backend::TextureFormatType::BC6H_SF16; // [UAA]
 
 	if (isBC7 && !GLExt::IsSupportedBPTC())
 	{
 		Effekseer::Log(Effekseer::LogType::Error,
 					   "BC7 texture is not supported on this OpenGL device. BPTC extension is required.");
 		return false;
+	}
+
+	if (isBC6H && !GLExt::IsSupportedBPTC()) // [UAA]
+	{
+		Effekseer::Log(Effekseer::LogType::Error, // [UAA]
+					   "BC6H texture is not supported on this OpenGL device. BPTC extension is required."); // [UAA]
+		return false; // [UAA]
 	}
 
 	const size_t initialDataSize = initialData.size();
@@ -603,6 +614,14 @@ bool Texture::Init(const Effekseer::Backend::TextureParameter& param, const Effe
 		else if (param.Format == Effekseer::Backend::TextureFormatType::BC7)
 		{
 			format = GL_COMPRESSED_RGBA_BPTC_UNORM;
+		}
+		else if (param.Format == Effekseer::Backend::TextureFormatType::BC6H_UF16) // [UAA]
+		{
+			format = GL_COMPRESSED_RGB_BPTC_UNSIGNED_FLOAT; // [UAA]
+		}
+		else if (param.Format == Effekseer::Backend::TextureFormatType::BC6H_SF16) // [UAA]
+		{
+			format = GL_COMPRESSED_RGB_BPTC_SIGNED_FLOAT; // [UAA]
 		}
 		else if (param.Format == Effekseer::Backend::TextureFormatType::BC1_SRGB)
 		{

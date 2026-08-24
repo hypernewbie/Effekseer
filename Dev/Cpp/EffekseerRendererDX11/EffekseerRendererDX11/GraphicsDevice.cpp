@@ -177,6 +177,14 @@ DXGI_FORMAT GetTextureFormatType(Effekseer::Backend::TextureFormatType format)
 	{
 		return DXGI_FORMAT_BC7_UNORM_SRGB;
 	}
+	else if (format == Effekseer::Backend::TextureFormatType::BC6H_UF16) // [UAA]
+	{
+		return DXGI_FORMAT_BC6H_UF16; // [UAA]
+	}
+	else if (format == Effekseer::Backend::TextureFormatType::BC6H_SF16) // [UAA]
+	{
+		return DXGI_FORMAT_BC6H_SF16; // [UAA]
+	}
 
 	return DXGI_FORMAT_UNKNOWN;
 }
@@ -608,6 +616,8 @@ bool Texture::Init(const Effekseer::Backend::TextureParameter& param, const Effe
 						param.Format == Effekseer::Backend::TextureFormatType::BC2 ||
 						param.Format == Effekseer::Backend::TextureFormatType::BC3 ||
 						param.Format == Effekseer::Backend::TextureFormatType::BC7 ||
+						param.Format == Effekseer::Backend::TextureFormatType::BC6H_UF16 || // [UAA]
+						param.Format == Effekseer::Backend::TextureFormatType::BC6H_SF16 || // [UAA]
 						param.Format == Effekseer::Backend::TextureFormatType::BC1_SRGB ||
 						param.Format == Effekseer::Backend::TextureFormatType::BC2_SRGB ||
 						param.Format == Effekseer::Backend::TextureFormatType::BC3_SRGB ||

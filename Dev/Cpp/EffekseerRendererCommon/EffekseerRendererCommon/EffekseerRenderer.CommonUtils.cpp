@@ -582,6 +582,16 @@ void CalculateAlignedTextureInformation(Effekseer::Backend::TextureFormatType fo
 		sizePerWidth = 16 * aligned(size[0], blockSize) / blockSize;
 		height = aligned(size[1], blockSize) / blockSize;
 	}
+	else if (format == Effekseer::Backend::TextureFormatType::BC6H_UF16) // [UAA]
+	{
+		sizePerWidth = 16 * aligned(size[0], blockSize) / blockSize; // [UAA]
+		height = aligned(size[1], blockSize) / blockSize; // [UAA]
+	}
+	else if (format == Effekseer::Backend::TextureFormatType::BC6H_SF16) // [UAA]
+	{
+		sizePerWidth = 16 * aligned(size[0], blockSize) / blockSize; // [UAA]
+		height = aligned(size[1], blockSize) / blockSize; // [UAA]
+	}
 }
 
 Effekseer::Backend::VertexLayoutRef GetVertexLayout(Effekseer::Backend::GraphicsDeviceRef graphicsDevice, RendererShaderType type)

@@ -177,8 +177,11 @@ public:
 				}
 				param.MipLevelCount = static_cast<int32_t>(mipLevelCount);
 
+				auto backend = graphicsDevice_->CreateTexture(param, initialData); // [UAA]
+				if (backend == nullptr) // [UAA]
+					return nullptr; // [UAA]
 				auto texture = ::Effekseer::MakeRefPtr<::Effekseer::Texture>();
-				texture->SetBackend(graphicsDevice_->CreateTexture(param, initialData));
+				texture->SetBackend(backend); // [UAA]
 				return texture;
 			}
 		}

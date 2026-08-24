@@ -77,6 +77,8 @@ enum class TextureFormatType
 	RG11B10_UFLOAT,
 
 	Unknown,
+	BC6H_UF16, // [UAA]
+	BC6H_SF16, // [UAA]
 };
 
 inline bool IsDepthTextureFormat(TextureFormatType format)

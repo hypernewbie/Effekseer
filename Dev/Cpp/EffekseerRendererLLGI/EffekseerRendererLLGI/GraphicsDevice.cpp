@@ -341,6 +341,14 @@ bool Texture::Init(const Effekseer::Backend::TextureParameter& param, const Effe
 	{
 		texParam.Format = LLGI::TextureFormatType::BC7;
 	}
+	else if (param.Format == Effekseer::Backend::TextureFormatType::BC6H_UF16) // [UAA]
+	{
+		texParam.Format = LLGI::TextureFormatType::BC6H_UF16; // [UAA]
+	}
+	else if (param.Format == Effekseer::Backend::TextureFormatType::BC6H_SF16) // [UAA]
+	{
+		texParam.Format = LLGI::TextureFormatType::BC6H_SF16; // [UAA]
+	}
 	else if (param.Format == Effekseer::Backend::TextureFormatType::R8G8B8A8_UNORM_SRGB)
 	{
 		texParam.Format = LLGI::TextureFormatType::R8G8B8A8_UNORM_SRGB;
